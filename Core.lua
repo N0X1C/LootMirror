@@ -1,5 +1,5 @@
 local activeRows   = {}
-local pendingItems = {} -- itemLink -> { row, ... } for items not yet cached
+local pendingItems = {} -- itemID -> { {row, count, itemLink}, ... }
 local classCache   = {} -- player name -> RAID_CLASS_COLORS entry
 
 -- Safely extract a string value, skipping tainted values via issecretvalue()
@@ -7,8 +7,7 @@ local hasIsSecretValue = type(issecretvalue) == "function"
 local function SafeString(value)
     if type(value) ~= "string" then return nil end
     if hasIsSecretValue and issecretvalue(value) then return nil end
-    local ok, clean = pcall(tostring, value)
-    return (ok and type(clean) == "string") and clean or nil
+    return value
 end
 
 -- Populate class color cache from current group
@@ -99,9 +98,12 @@ local function IsFiltered(quality)
     return fq and fq[quality or 1] == false
 end
 
--- Applies item data to a row; returns the quality on success, false if not cached yet
-local function ApplyItemData(row, itemLink, count)
-    local itemName, _, quality, _, _, _, _, _, _, itemTexture = C_Item.GetItemInfo(itemLink)
+-- Applies item data to a row; accepts pre-fetched data or fetches it on demand.
+-- Returns the quality on success, false if not cached yet.
+local function ApplyItemData(row, itemLink, count, itemName, quality, itemTexture)
+    if not itemName then
+        itemName, _, quality, _, _, _, _, _, _, itemTexture = C_Item.GetItemInfo(itemLink)
+    end
     if not itemName then return false end
 
     local r, g, b = GetItemQualityColor(quality or 1)
@@ -113,9 +115,11 @@ local function ApplyItemData(row, itemLink, count)
 end
 
 local function DisplayLoot(player, itemLink, count)
-    -- If item is already cached, check filter immediately
-    local _, _, quality = C_Item.GetItemInfo(itemLink)
+    -- Single GetItemInfo call: used for filter check and row population
+    local itemName, _, quality, _, _, _, _, _, _, itemTexture = C_Item.GetItemInfo(itemLink)
     if quality and IsFiltered(quality) then return end
+
+    local itemID = tonumber(itemLink:match("|Hitem:(%d+)"))
 
     local row = LootMirror.AcquireRow()
     row.itemLink   = itemLink
@@ -131,10 +135,10 @@ local function DisplayLoot(player, itemLink, count)
     row.ItemText:SetText("|cffaaaaaaLoading...|r")
     row.Count:SetText("")
 
-    if not ApplyItemData(row, itemLink, count) then
-        -- Not cached yet: queue for GET_ITEM_INFO_RECEIVED, filter checked on arrival
-        if not pendingItems[itemLink] then pendingItems[itemLink] = {} end
-        table.insert(pendingItems[itemLink], { row = row, count = count })
+    -- Pass pre-fetched data; only queue if still not cached
+    if not ApplyItemData(row, itemLink, count, itemName, quality, itemTexture) and itemID then
+        if not pendingItems[itemID] then pendingItems[itemID] = {} end
+        table.insert(pendingItems[itemID], { row = row, count = count, itemLink = itemLink })
     end
 
     table.insert(activeRows, 1, row)
@@ -156,15 +160,17 @@ local function DisplayLoot(player, itemLink, count)
             end
         end
         -- Clean up pending entry
-        local pending = pendingItems[itemLink]
-        if pending then
-            for i, entry in ipairs(pending) do
-                if entry.row == row then
-                    table.remove(pending, i)
-                    break
+        if itemID then
+            local pending = pendingItems[itemID]
+            if pending then
+                for i, entry in ipairs(pending) do
+                    if entry.row == row then
+                        table.remove(pending, i)
+                        break
+                    end
                 end
+                if #pending == 0 then pendingItems[itemID] = nil end
             end
-            if #pending == 0 then pendingItems[itemLink] = nil end
         end
     end)
 end
@@ -179,6 +185,7 @@ core:SetScript("OnEvent", function(self, event, ...)
     if event == "ADDON_LOADED" then
         local name = ...
         if name == "LootMirror" then
+            self:UnregisterEvent("ADDON_LOADED")
             LootMirrorDB = LootMirrorDB or {}
             LootMirrorDB.point    = LootMirrorDB.point    or "TOP"
             LootMirrorDB.x        = LootMirrorDB.x        or 0
@@ -215,29 +222,23 @@ core:SetScript("OnEvent", function(self, event, ...)
     elseif event == "GET_ITEM_INFO_RECEIVED" then
         local itemID, success = ...
         if not success then return end
-        local toRemove
-        for itemLink, entries in pairs(pendingItems) do
-            local linkID = tonumber(itemLink:match("|Hitem:(%d+)"))
-            if linkID == itemID then
-                for _, entry in ipairs(entries) do
-                    local quality = ApplyItemData(entry.row, itemLink, entry.count)
-                    if quality and IsFiltered(quality) then
-                        -- Quality is filtered out: remove the row
-                        for i, r in ipairs(activeRows) do
-                            if r == entry.row then
-                                table.remove(activeRows, i)
-                                break
-                            end
-                        end
-                        LootMirror.ReleaseRow(entry.row)
-                        UpdateRowPositions()
+        local entries = pendingItems[itemID]
+        if not entries then return end
+        for _, entry in ipairs(entries) do
+            local quality = ApplyItemData(entry.row, entry.itemLink, entry.count)
+            if quality and IsFiltered(quality) then
+                -- Quality is filtered out: remove the row
+                for i, r in ipairs(activeRows) do
+                    if r == entry.row then
+                        table.remove(activeRows, i)
+                        break
                     end
                 end
-                toRemove = itemLink
-                break
+                LootMirror.ReleaseRow(entry.row)
+                UpdateRowPositions()
             end
         end
-        if toRemove then pendingItems[toRemove] = nil end
+        pendingItems[itemID] = nil
     end
 end)
 
