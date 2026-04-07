@@ -16,7 +16,6 @@ LootMirror shows what your group members loot in a clean, unobtrusive feed — n
 - **Configurable row count** — 1 to 10 bars visible at once
 - **Configurable duration** — bars stay visible for 5 to 60 seconds
 - **Grow direction** — feed can expand downward or upward from the anchor
-- **Stack count badge** — multi-item loot shows a count on the icon corner
 - **Frame pool** — rows are reused instead of recreated, keeping memory overhead minimal
 - **Locale independent** — loot message patterns are built from WoW's own GlobalStrings at runtime
 

@@ -10,8 +10,14 @@ local function SafeString(value)
     return value
 end
 
--- Populate class color cache from current group
+-- Populate class color cache from current group (including self)
 local function RefreshClassCache()
+    local playerName = UnitName("player")
+    local _, playerToken = UnitClass("player")
+    if playerName and playerToken and RAID_CLASS_COLORS[playerToken] then
+        classCache[playerName] = RAID_CLASS_COLORS[playerToken]
+    end
+
     local inRaid = IsInRaid()
     local count  = GetNumGroupMembers()
     local prefix = inRaid and "raid" or "party"
@@ -61,9 +67,10 @@ local function MakePattern(str)
         :gsub("%%%%d", "(%%d+)")
 end
 
--- Group/raid loot only (own loot is handled by the default WoW UI)
-local LOOT_ITEM_PATTERN       = MakePattern(LOOT_ITEM)
-local LOOT_ITEM_MULTI_PATTERN = LOOT_ITEM_MULTIPLE and MakePattern(LOOT_ITEM_MULTIPLE)
+local LOOT_ITEM_PATTERN            = MakePattern(LOOT_ITEM)
+local LOOT_ITEM_MULTI_PATTERN      = LOOT_ITEM_MULTIPLE      and MakePattern(LOOT_ITEM_MULTIPLE)
+local LOOT_ITEM_SELF_PATTERN       = LOOT_ITEM_SELF           and MakePattern(LOOT_ITEM_SELF)
+local LOOT_ITEM_SELF_MULTI_PATTERN = LOOT_ITEM_SELF_MULTIPLE  and MakePattern(LOOT_ITEM_SELF_MULTIPLE)
 
 LootMirror.SavePosition = function()
     local f = LootMirror.MainFrame
@@ -207,6 +214,22 @@ core:SetScript("OnEvent", function(self, event, ...)
     elseif event == "CHAT_MSG_LOOT" then
         local msg = SafeString(...)
         if not msg then return end
+        -- Self loot (no player name in the message)
+        if LOOT_ITEM_SELF_MULTI_PATTERN then
+            local link, n = strmatch(msg, LOOT_ITEM_SELF_MULTI_PATTERN)
+            if link then
+                DisplayLoot(UnitName("player"), link, tonumber(n))
+                return
+            end
+        end
+        if LOOT_ITEM_SELF_PATTERN then
+            local link = strmatch(msg, LOOT_ITEM_SELF_PATTERN)
+            if link then
+                DisplayLoot(UnitName("player"), link, nil)
+                return
+            end
+        end
+        -- Other players' loot
         if LOOT_ITEM_MULTI_PATTERN then
             local p, link, n = strmatch(msg, LOOT_ITEM_MULTI_PATTERN)
             if p and link then
