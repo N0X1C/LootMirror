@@ -10,7 +10,7 @@ local QUALITY_INFO = {
 }
 
 local optFrame = CreateFrame("Frame", "LootMirrorOptionsFrame", UIParent, "BasicFrameTemplate")
-optFrame:SetSize(300, 400)
+optFrame:SetSize(300, 440)
 optFrame:SetPoint("CENTER")
 optFrame:SetMovable(true)
 optFrame:EnableMouse(true)
@@ -93,30 +93,31 @@ local dirLabel = optFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 dirLabel:SetPoint("TOPLEFT", durSlider, "BOTTOMLEFT", -8, -26)
 dirLabel:SetText("Grow Direction")
 
-local radioDown = CreateFrame("CheckButton", "LootMirrorRadioDown", optFrame, "UIRadioButtonTemplate")
-radioDown:SetPoint("TOPLEFT", dirLabel, "BOTTOMLEFT", 0, -6)
-radioDown.text:SetText("Grow downward")
-radioDown.text:SetFontObject("GameFontNormalSmall")
-
 local radioUp = CreateFrame("CheckButton", "LootMirrorRadioUp", optFrame, "UIRadioButtonTemplate")
-radioUp:SetPoint("TOPLEFT", radioDown, "BOTTOMLEFT", 0, -4)
+radioUp:SetPoint("TOPLEFT", dirLabel, "BOTTOMLEFT", 0, -6)
 radioUp.text:SetText("Grow upward")
 radioUp.text:SetFontObject("GameFontNormalSmall")
 
-radioDown:SetScript("OnClick", function(self) self:SetChecked(true); radioUp:SetChecked(false) end)
-radioUp:SetScript("OnClick",   function(self) self:SetChecked(true); radioDown:SetChecked(false) end)
+local radioDown = CreateFrame("CheckButton", "LootMirrorRadioDown", optFrame, "UIRadioButtonTemplate")
+radioDown:SetPoint("TOPLEFT", radioUp, "BOTTOMLEFT", 0, -4)
+radioDown.text:SetText("Grow downward")
+radioDown.text:SetFontObject("GameFontNormalSmall")
 
-Divider(radioUp)
+radioUp:SetScript("OnClick",   function(self) self:SetChecked(true); radioDown:SetChecked(false) end)
+radioDown:SetScript("OnClick", function(self) self:SetChecked(true); radioUp:SetChecked(false) end)
+
+Divider(radioDown)  -- anchor divider below the LAST radio button
 
 -- ── Item Quality Filter ───────────────────────────────────────────────────────
 local qualLabel = optFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-qualLabel:SetPoint("TOPLEFT", radioUp, "BOTTOMLEFT", 0, -26)
+qualLabel:SetPoint("TOPLEFT", radioDown, "BOTTOMLEFT", 0, -26)  -- anchor below radioDown
 qualLabel:SetText("Displayed Qualities")
 
 -- 6 checkboxes in 3 columns x 2 rows
 local qualChecks = {}
 local COL_W = 88
 local ROW_H = 26
+local lastQualCheck  -- track last checkbox for anchoring the divider below it
 
 for idx, info in ipairs(QUALITY_INFO) do
     local col = (idx - 1) % 3
@@ -132,20 +133,54 @@ for idx, info in ipairs(QUALITY_INFO) do
     cb.text:SetFontObject("GameFontNormalSmall")
 
     qualChecks[info.id] = cb
+    if col == 0 then lastQualCheck = cb end  -- leftmost checkbox of each row = lowest anchor
 end
 
--- ── Save Button ───────────────────────────────────────────────────────────────
-local saveBtn = CreateFrame("Button", nil, optFrame, "GameMenuButtonTemplate")
-saveBtn:SetSize(140, 28)
-saveBtn:SetPoint("BOTTOM", optFrame, "BOTTOM", 0, 14)
-saveBtn:SetText("Save & Close")
-saveBtn:SetScript("OnClick", function()
+-- ── Shared apply logic (used by both Test and Save) ──────────────────────────
+local function ApplySettings()
     LootMirrorDB.maxRows  = math.floor(maxSlider:GetValue() + 0.5)
     LootMirrorDB.duration = math.floor(durSlider:GetValue() / 5 + 0.5) * 5
     LootMirrorDB.growUp   = radioUp:GetChecked() and true or false
     for id, cb in pairs(qualChecks) do
         LootMirrorDB.filterQuality[id] = cb:GetChecked() and true or false
     end
+end
+
+-- ── Buttons ───────────────────────────────────────────────────────────────────
+local btnDivider = optFrame:CreateTexture(nil, "ARTWORK")
+btnDivider:SetColorTexture(0.4, 0.4, 0.4, 0.6)
+btnDivider:SetHeight(1)
+btnDivider:SetPoint("TOPLEFT",  lastQualCheck, "BOTTOMLEFT",  -4, -12)
+btnDivider:SetPoint("TOPRIGHT", optFrame,      "TOPRIGHT",    -12,  0)
+btnDivider:SetPoint("TOP",      lastQualCheck, "BOTTOM",       0,  -12)
+
+local moveBtn = CreateFrame("Button", nil, optFrame, "GameMenuButtonTemplate")
+moveBtn:SetSize(120, 28)
+moveBtn:SetPoint("BOTTOM", optFrame, "BOTTOM", -64, 52)
+moveBtn:SetText("Move Anchor")
+moveBtn:SetScript("OnClick", function()
+    SlashCmdList["LOOTMIRROR"]("move")
+end)
+
+local testBtn = CreateFrame("Button", nil, optFrame, "GameMenuButtonTemplate")
+testBtn:SetSize(120, 28)
+testBtn:SetPoint("BOTTOM", optFrame, "BOTTOM", 64, 52)
+testBtn:SetText("Test")
+testBtn:SetScript("OnClick", function()
+    ApplySettings()
+    SlashCmdList["LOOTMIRROR"]("test")
+end)
+
+local saveBtn = CreateFrame("Button", nil, optFrame, "GameMenuButtonTemplate")
+saveBtn:SetSize(200, 28)
+saveBtn:SetPoint("BOTTOM", optFrame, "BOTTOM", 0, 16)
+saveBtn:SetText("Save & Close")
+saveBtn:SetScript("OnClick", function()
+    ApplySettings()
+    if LootMirror.MainFrame:IsShown() then
+        LootMirror.MainFrame:Hide()
+    end
+    LootMirror.ClearFeed()
     optFrame:Hide()
 end)
 

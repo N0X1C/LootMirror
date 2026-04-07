@@ -2,40 +2,45 @@ local activeRows   = {}
 local pendingItems = {} -- itemLink -> { row, ... } for items not yet cached
 local classCache   = {} -- player name -> RAID_CLASS_COLORS entry
 
+-- Safely extract a string value, skipping tainted values via issecretvalue()
+local hasIsSecretValue = type(issecretvalue) == "function"
+local function SafeString(value)
+    if type(value) ~= "string" then return nil end
+    if hasIsSecretValue and issecretvalue(value) then return nil end
+    local ok, clean = pcall(tostring, value)
+    return (ok and type(clean) == "string") and clean or nil
+end
+
 -- Populate class color cache from current group
 local function RefreshClassCache()
-    local function CacheUnit(unit)
-        if not UnitExists(unit) then return end
-        local name = UnitName(unit)
-        local _, token = UnitClass(unit)
-        if name and token and RAID_CLASS_COLORS[token] then
-            classCache[name] = RAID_CLASS_COLORS[token]
+    local inRaid = IsInRaid()
+    local count  = GetNumGroupMembers()
+    local prefix = inRaid and "raid" or "party"
+    for i = 1, count do
+        local unit = prefix .. i
+        if UnitExists(unit) then
+            local name = UnitName(unit)
+            local _, token = UnitClass(unit)
+            if name and token and RAID_CLASS_COLORS[token] then
+                classCache[name] = RAID_CLASS_COLORS[token]
+            end
         end
     end
-    for i = 1, 40 do CacheUnit("raid"  .. i) end
-    for i = 1, 4  do CacheUnit("party" .. i) end
 end
 
 local function GetClassColor(name)
     local shortName = name:match("^([^%-]+)") or name
     local c = classCache[name] or classCache[shortName]
     if not c then
-        -- Live lookup: search player directly in current group
-        for i = 1, 40 do
-            local unit = "raid" .. i
-            if UnitExists(unit) and UnitName(unit) == shortName then
-                local _, token = UnitClass(unit)
-                if token and RAID_CLASS_COLORS[token] then
-                    c = RAID_CLASS_COLORS[token]
-                    classCache[shortName] = c
-                    break
-                end
-            end
-        end
-        if not c then
-            for i = 1, 4 do
-                local unit = "party" .. i
-                if UnitExists(unit) and UnitName(unit) == shortName then
+        -- Live lookup: only iterate the units actually present
+        local inRaid = IsInRaid()
+        local count  = GetNumGroupMembers()
+        local prefix = inRaid and "raid" or "party"
+        for i = 1, count do
+            local unit = prefix .. i
+            if UnitExists(unit) then
+                local uName = UnitName(unit)
+                if uName == shortName or uName == name then
                     local _, token = UnitClass(unit)
                     if token and RAID_CLASS_COLORS[token] then
                         c = RAID_CLASS_COLORS[token]
@@ -68,6 +73,13 @@ LootMirror.SavePosition = function()
     LootMirrorDB.point = point
     LootMirrorDB.x     = x
     LootMirrorDB.y     = y
+end
+
+function LootMirror.ClearFeed()
+    for i = #activeRows, 1, -1 do
+        LootMirror.ReleaseRow(activeRows[i])
+        activeRows[i] = nil
+    end
 end
 
 local function UpdateRowPositions()
@@ -186,19 +198,17 @@ core:SetScript("OnEvent", function(self, event, ...)
         RefreshClassCache()
 
     elseif event == "CHAT_MSG_LOOT" then
-        local msg = ...
-        if type(msg) ~= "string" then return end
-        -- pcall guards against tainted string values that pass the type check
-        -- but fail at the C level inside strmatch
+        local msg = SafeString(...)
+        if not msg then return end
         if LOOT_ITEM_MULTI_PATTERN then
-            local ok, p, link, n = pcall(strmatch, msg, LOOT_ITEM_MULTI_PATTERN)
-            if ok and p and link then
+            local p, link, n = strmatch(msg, LOOT_ITEM_MULTI_PATTERN)
+            if p and link then
                 DisplayLoot(p, link, tonumber(n))
                 return
             end
         end
-        local ok, p, link = pcall(strmatch, msg, LOOT_ITEM_PATTERN)
-        if ok and p and link then
+        local p, link = strmatch(msg, LOOT_ITEM_PATTERN)
+        if p and link then
             DisplayLoot(p, link, nil)
         end
 

@@ -88,13 +88,15 @@ local function CreateLootRow()
         local anchor = (self:GetRight() or 0) > GetScreenWidth() * 0.65
             and "ANCHOR_LEFT" or "ANCHOR_RIGHT"
         GameTooltip:SetOwner(self, anchor)
-        GameTooltip:SetHyperlink(self.itemLink) -- comparison triggered automatically via OnTooltipSetItem
+        GameTooltip:SetHyperlink(self.itemLink)
+        if GameTooltip_ShowCompareItem then
+            GameTooltip_ShowCompareItem(GameTooltip)
+        end
     end)
     row:SetScript("OnLeave", function()
         GameTooltip:Hide()
-        -- Hide comparison tooltips as well
-        if GameTooltip.shoppingTooltips then
-            for _, t in ipairs(GameTooltip.shoppingTooltips) do t:Hide() end
+        if GameTooltip_HideShoppingTooltips then
+            GameTooltip_HideShoppingTooltips(GameTooltip)
         end
     end)
 
