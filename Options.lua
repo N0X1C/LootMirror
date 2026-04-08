@@ -10,7 +10,7 @@ local QUALITY_INFO = {
 }
 
 local optFrame = CreateFrame("Frame", "LootMirrorOptionsFrame", UIParent, "BasicFrameTemplate")
-optFrame:SetSize(300, 440)
+optFrame:SetSize(300, 510)
 optFrame:SetPoint("CENTER")
 optFrame:SetMovable(true)
 optFrame:EnableMouse(true)
@@ -88,9 +88,37 @@ end)
 
 Divider(durSlider)
 
+-- ── Font Size ─────────────────────────────────────────────────────────────────
+local fontLabel = optFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+fontLabel:SetPoint("TOPLEFT", durSlider, "BOTTOMLEFT", -8, -26)
+fontLabel:SetText("Font Size")
+
+local fontValueLabel = optFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+fontValueLabel:SetPoint("TOP",      fontLabel, "TOP")
+fontValueLabel:SetPoint("TOPRIGHT", optFrame,  "TOPRIGHT", -16, 0)
+
+local fontSlider = CreateFrame("Slider", "LootMirrorFontSlider", optFrame, "OptionsSliderTemplate")
+fontSlider:SetPoint("TOPLEFT",  fontLabel, "BOTTOMLEFT",   8, -14)
+fontSlider:SetPoint("TOPRIGHT", optFrame,  "TOPRIGHT",   -24, 0)
+fontSlider:SetPoint("TOP",      fontLabel, "BOTTOM",        0, -14)
+fontSlider:SetMinMaxValues(8, 18)
+fontSlider:SetValueStep(1)
+fontSlider:SetObeyStepOnDrag(true)
+fontSlider.Low:SetText("8")
+fontSlider.High:SetText("18")
+local fontSliderText = _G[fontSlider:GetName() .. "Text"]
+if fontSliderText then fontSliderText:SetText("") end
+fontSlider:SetScript("OnValueChanged", function(self, val)
+    local v = math.floor(val + 0.5)
+    fontValueLabel:SetText(v)
+    if fontSliderText then fontSliderText:SetText("") end
+end)
+
+Divider(fontSlider)
+
 -- ── Grow Direction (Radio Buttons) ────────────────────────────────────────────
 local dirLabel = optFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-dirLabel:SetPoint("TOPLEFT", durSlider, "BOTTOMLEFT", -8, -26)
+dirLabel:SetPoint("TOPLEFT", fontSlider, "BOTTOMLEFT", -8, -26)
 dirLabel:SetText("Grow Direction")
 
 local radioUp = CreateFrame("CheckButton", "LootMirrorRadioUp", optFrame, "UIRadioButtonTemplate")
@@ -140,10 +168,12 @@ end
 local function ApplySettings()
     LootMirrorDB.maxRows  = math.floor(maxSlider:GetValue() + 0.5)
     LootMirrorDB.duration = math.floor(durSlider:GetValue() / 5 + 0.5) * 5
+    LootMirrorDB.fontSize = math.floor(fontSlider:GetValue() + 0.5)
     LootMirrorDB.growUp   = radioUp:GetChecked() and true or false
     for id, cb in pairs(qualChecks) do
         LootMirrorDB.filterQuality[id] = cb:GetChecked() and true or false
     end
+    LootMirror.RefreshFontSize()
 end
 
 -- ── Buttons ───────────────────────────────────────────────────────────────────
@@ -189,6 +219,7 @@ optFrame:SetScript("OnShow", function()
     local db = LootMirrorDB or {}
     maxSlider:SetValue(db.maxRows or 5)
     durSlider:SetValue(db.duration or 15)
+    fontSlider:SetValue(db.fontSize or 11)
     if db.growUp then
         radioUp:SetChecked(true);  radioDown:SetChecked(false)
     else

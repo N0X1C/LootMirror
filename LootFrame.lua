@@ -103,8 +103,16 @@ local function CreateLootRow()
     return row
 end
 
+function LootMirror.ApplyFontSizeToRow(row, size)
+    local path, _, flags = GameFontNormalSmall:GetFont()
+    row.PlayerText:SetFont(path, size, flags)
+    row.ItemText:SetFont(path, size, flags)
+end
+
 function LootMirror.AcquireRow()
-    return table.remove(framePool) or CreateLootRow()
+    local row = table.remove(framePool) or CreateLootRow()
+    LootMirror.ApplyFontSizeToRow(row, (LootMirrorDB and LootMirrorDB.fontSize) or 11)
+    return row
 end
 
 function LootMirror.ReleaseRow(row)

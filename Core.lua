@@ -10,8 +10,15 @@ local function SafeString(value)
     return value
 end
 
--- Populate class color cache from current group
+-- Populate class color cache from current group (including self)
 local function RefreshClassCache()
+    -- Always cache the player's own class
+    local selfName = UnitName("player")
+    local _, selfToken = UnitClass("player")
+    if selfName and selfToken and RAID_CLASS_COLORS[selfToken] then
+        classCache[selfName] = RAID_CLASS_COLORS[selfToken]
+    end
+
     local inRaid = IsInRaid()
     local count  = GetNumGroupMembers()
     local prefix = inRaid and "raid" or "party"
@@ -61,9 +68,10 @@ local function MakePattern(str)
         :gsub("%%%%d", "(%%d+)")
 end
 
--- Group/raid loot only (own loot is handled by the default WoW UI)
-local LOOT_ITEM_PATTERN       = MakePattern(LOOT_ITEM)
-local LOOT_ITEM_MULTI_PATTERN = LOOT_ITEM_MULTIPLE and MakePattern(LOOT_ITEM_MULTIPLE)
+local LOOT_ITEM_PATTERN            = MakePattern(LOOT_ITEM)
+local LOOT_ITEM_MULTI_PATTERN      = LOOT_ITEM_MULTIPLE and MakePattern(LOOT_ITEM_MULTIPLE)
+local LOOT_ITEM_SELF_PATTERN       = LOOT_ITEM_SELF and MakePattern(LOOT_ITEM_SELF)
+local LOOT_ITEM_SELF_MULTI_PATTERN = LOOT_ITEM_SELF_MULTIPLE and MakePattern(LOOT_ITEM_SELF_MULTIPLE)
 
 LootMirror.SavePosition = function()
     local f = LootMirror.MainFrame
@@ -78,6 +86,13 @@ function LootMirror.ClearFeed()
     for i = #activeRows, 1, -1 do
         LootMirror.ReleaseRow(activeRows[i])
         activeRows[i] = nil
+    end
+end
+
+function LootMirror.RefreshFontSize()
+    local size = (LootMirrorDB and LootMirrorDB.fontSize) or 11
+    for _, row in ipairs(activeRows) do
+        LootMirror.ApplyFontSizeToRow(row, size)
     end
 end
 
@@ -193,6 +208,7 @@ core:SetScript("OnEvent", function(self, event, ...)
             LootMirrorDB.maxRows  = LootMirrorDB.maxRows  or 5
             LootMirrorDB.growUp   = LootMirrorDB.growUp   or false
             LootMirrorDB.duration = LootMirrorDB.duration or 15
+            LootMirrorDB.fontSize = LootMirrorDB.fontSize or 11
             if not LootMirrorDB.filterQuality then
                 LootMirrorDB.filterQuality = { [0]=true,[1]=true,[2]=true,[3]=true,[4]=true,[5]=true }
             end
@@ -207,6 +223,23 @@ core:SetScript("OnEvent", function(self, event, ...)
     elseif event == "CHAT_MSG_LOOT" then
         local msg = SafeString(...)
         if not msg then return end
+        -- Own loot (multi)
+        if LOOT_ITEM_SELF_MULTI_PATTERN then
+            local link, n = strmatch(msg, LOOT_ITEM_SELF_MULTI_PATTERN)
+            if link then
+                DisplayLoot(UnitName("player"), link, tonumber(n))
+                return
+            end
+        end
+        -- Own loot (single)
+        if LOOT_ITEM_SELF_PATTERN then
+            local link = strmatch(msg, LOOT_ITEM_SELF_PATTERN)
+            if link then
+                DisplayLoot(UnitName("player"), link, nil)
+                return
+            end
+        end
+        -- Group/raid loot (multi)
         if LOOT_ITEM_MULTI_PATTERN then
             local p, link, n = strmatch(msg, LOOT_ITEM_MULTI_PATTERN)
             if p and link then
@@ -214,6 +247,7 @@ core:SetScript("OnEvent", function(self, event, ...)
                 return
             end
         end
+        -- Group/raid loot (single)
         local p, link = strmatch(msg, LOOT_ITEM_PATTERN)
         if p and link then
             DisplayLoot(p, link, nil)
@@ -247,10 +281,8 @@ SlashCmdList["LOOTMIRROR"] = function(msg)
     if msg == "move" then
         if LootMirror.MainFrame:IsShown() then
             LootMirror.MainFrame:Hide()
-            print("LootMirror: Anchor hidden.")
         else
             LootMirror.MainFrame:Show()
-            print("LootMirror: Anchor visible – drag the bar to reposition, then /lm move to hide.")
         end
 
     elseif msg == "test" then
