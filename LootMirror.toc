@@ -2,7 +2,7 @@
 ## Title: LootMirror
 ## Notes: Lightweight party/raid loot feed styled to match the native WoW UI.
 ## Author: N0X1C
-## Version: 1.1
+## Version: 1.0
 ## SavedVariables: LootMirrorDB
 
 LootFrame.lua
