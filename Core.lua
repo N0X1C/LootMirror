@@ -11,6 +11,7 @@ local function SafeString(value)
 end
 
 -- Populate class color cache from current group (including self)
+-- Populate class color cache from current group (including self)
 local function RefreshClassCache()
     -- Always cache the player's own class
     local selfName = UnitName("player")
