@@ -123,7 +123,7 @@ textureLabel:SetText("Bar Texture")
 
 local radioTooltip = CreateFrame("CheckButton", "LootMirrorRadioTooltip", optFrame, "UIRadioButtonTemplate")
 radioTooltip:SetPoint("TOPLEFT", textureLabel, "BOTTOMLEFT", 0, -6)
-radioTooltip.text:SetText("Blizzard Tooltip")
+radioTooltip.text:SetText("Blizzard")
 radioTooltip.text:SetFontObject("GameFontNormalSmall")
 
 local radioFlat = CreateFrame("CheckButton", "LootMirrorRadioFlat", optFrame, "UIRadioButtonTemplate")
@@ -189,7 +189,7 @@ local function ApplySettings()
     LootMirrorDB.maxRows  = math.floor(maxSlider:GetValue() + 0.5)
     LootMirrorDB.duration = math.floor(durSlider:GetValue() / 5 + 0.5) * 5
     LootMirrorDB.fontSize = math.floor(fontSlider:GetValue() + 0.5)
-    LootMirrorDB.texture  = radioFlat:GetChecked() and "Flat" or "Blizzard Tooltip"
+    LootMirrorDB.texture  = radioFlat:GetChecked() and "Flat" or "Blizzard"
     LootMirrorDB.growUp   = radioUp:GetChecked() and true or false
     for id, cb in pairs(qualChecks) do
         LootMirrorDB.filterQuality[id] = cb:GetChecked() and true or false

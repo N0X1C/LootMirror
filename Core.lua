@@ -216,7 +216,7 @@ core:SetScript("OnEvent", function(self, event, ...)
             LootMirrorDB.growUp   = LootMirrorDB.growUp   or false
             LootMirrorDB.duration = LootMirrorDB.duration or 15
             LootMirrorDB.fontSize = LootMirrorDB.fontSize or 11
-            LootMirrorDB.texture  = LootMirrorDB.texture  or "Blizzard Tooltip"
+            LootMirrorDB.texture  = LootMirrorDB.texture  or "Blizzard"
             if not LootMirrorDB.filterQuality then
                 LootMirrorDB.filterQuality = { [0]=true,[1]=true,[2]=true,[3]=true,[4]=true,[5]=true }
             end

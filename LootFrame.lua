@@ -109,7 +109,7 @@ function LootMirror.ApplyTextureToRow(row, textureName)
         })
         row:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
         row:SetBackdropBorderColor(0.25, 0.25, 0.25, 0.9)
-    else -- "Blizzard Tooltip" (default)
+    else -- "Blizzard" (default)
         row:SetBackdrop({
             bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
             edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -124,7 +124,7 @@ end
 function LootMirror.AcquireRow()
     local row = table.remove(framePool) or CreateLootRow()
     LootMirror.ApplyFontSizeToRow(row, (LootMirrorDB and LootMirrorDB.fontSize) or 11)
-    LootMirror.ApplyTextureToRow(row, LootMirrorDB and LootMirrorDB.texture or "Blizzard Tooltip")
+    LootMirror.ApplyTextureToRow(row, LootMirrorDB and LootMirrorDB.texture or "Blizzard")
     return row
 end
 
