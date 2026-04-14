@@ -29,21 +29,11 @@ anchor:SetScript("OnDragStop", function(self)
     if LootMirror.SavePosition then LootMirror.SavePosition() end
 end)
 
--- Loot row styled like a Blizzard tooltip
+-- Loot row (backdrop is applied by AcquireRow)
 local function CreateLootRow()
     local row = CreateFrame("Button", nil, UIParent, "BackdropTemplate")
     row:SetSize(300, 52)
     row:SetFrameStrata("MEDIUM")
-
-    -- Dark tooltip background matching WoW's native tooltip color
-    row:SetBackdrop({
-        bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile     = true, tileSize = 16, edgeSize = 16,
-        insets   = { left = 4, right = 4, top = 4, bottom = 4 },
-    })
-    row:SetBackdropColor(0.09, 0.09, 0.19, 0.95)
-    row:SetBackdropBorderColor(0.4, 0.4, 0.5, 0.85)
 
     -- Icon border with quality-colored 1px edge (set by Core)
     local iconBorder = CreateFrame("Frame", nil, row, "BackdropTemplate")
@@ -109,9 +99,32 @@ function LootMirror.ApplyFontSizeToRow(row, size)
     row.ItemText:SetFont(path, size, flags)
 end
 
+function LootMirror.ApplyTextureToRow(row, textureName)
+    if textureName == "Flat" then
+        row:SetBackdrop({
+            bgFile   = "Interface\\Buttons\\WHITE8x8",
+            edgeFile = "Interface\\Buttons\\WHITE8x8",
+            edgeSize = 1,
+            insets   = { left = 0, right = 0, top = 0, bottom = 0 },
+        })
+        row:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
+        row:SetBackdropBorderColor(0.25, 0.25, 0.25, 0.9)
+    else -- "Blizzard Tooltip" (default)
+        row:SetBackdrop({
+            bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true, tileSize = 16, edgeSize = 16,
+            insets = { left = 4, right = 4, top = 4, bottom = 4 },
+        })
+        row:SetBackdropColor(0, 0, 0, 0.85)
+        row:SetBackdropBorderColor(0.4, 0.4, 0.5, 0.85)
+    end
+end
+
 function LootMirror.AcquireRow()
     local row = table.remove(framePool) or CreateLootRow()
     LootMirror.ApplyFontSizeToRow(row, (LootMirrorDB and LootMirrorDB.fontSize) or 11)
+    LootMirror.ApplyTextureToRow(row, LootMirrorDB and LootMirrorDB.texture or "Blizzard Tooltip")
     return row
 end
 

@@ -10,7 +10,7 @@ local QUALITY_INFO = {
 }
 
 local optFrame = CreateFrame("Frame", "LootMirrorOptionsFrame", UIParent, "BasicFrameTemplate")
-optFrame:SetSize(300, 510)
+optFrame:SetSize(300, 570)
 optFrame:SetPoint("CENTER")
 optFrame:SetMovable(true)
 optFrame:EnableMouse(true)
@@ -116,9 +116,29 @@ end)
 
 Divider(fontSlider)
 
+-- ── Bar Texture ───────────────────────────────────────────────────────────────
+local textureLabel = optFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+textureLabel:SetPoint("TOPLEFT", fontSlider, "BOTTOMLEFT", -8, -26)
+textureLabel:SetText("Bar Texture")
+
+local radioTooltip = CreateFrame("CheckButton", "LootMirrorRadioTooltip", optFrame, "UIRadioButtonTemplate")
+radioTooltip:SetPoint("TOPLEFT", textureLabel, "BOTTOMLEFT", 0, -6)
+radioTooltip.text:SetText("Blizzard Tooltip")
+radioTooltip.text:SetFontObject("GameFontNormalSmall")
+
+local radioFlat = CreateFrame("CheckButton", "LootMirrorRadioFlat", optFrame, "UIRadioButtonTemplate")
+radioFlat:SetPoint("TOPLEFT", radioTooltip, "BOTTOMLEFT", 0, -4)
+radioFlat.text:SetText("Flat")
+radioFlat.text:SetFontObject("GameFontNormalSmall")
+
+radioTooltip:SetScript("OnClick", function(self) self:SetChecked(true); radioFlat:SetChecked(false) end)
+radioFlat:SetScript("OnClick",    function(self) self:SetChecked(true); radioTooltip:SetChecked(false) end)
+
+Divider(radioFlat)
+
 -- ── Grow Direction (Radio Buttons) ────────────────────────────────────────────
 local dirLabel = optFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-dirLabel:SetPoint("TOPLEFT", fontSlider, "BOTTOMLEFT", -8, -26)
+dirLabel:SetPoint("TOPLEFT", radioFlat, "BOTTOMLEFT", 0, -16)
 dirLabel:SetText("Grow Direction")
 
 local radioUp = CreateFrame("CheckButton", "LootMirrorRadioUp", optFrame, "UIRadioButtonTemplate")
@@ -169,11 +189,13 @@ local function ApplySettings()
     LootMirrorDB.maxRows  = math.floor(maxSlider:GetValue() + 0.5)
     LootMirrorDB.duration = math.floor(durSlider:GetValue() / 5 + 0.5) * 5
     LootMirrorDB.fontSize = math.floor(fontSlider:GetValue() + 0.5)
+    LootMirrorDB.texture  = radioFlat:GetChecked() and "Flat" or "Blizzard Tooltip"
     LootMirrorDB.growUp   = radioUp:GetChecked() and true or false
     for id, cb in pairs(qualChecks) do
         LootMirrorDB.filterQuality[id] = cb:GetChecked() and true or false
     end
     LootMirror.RefreshFontSize()
+    LootMirror.RefreshTexture()
 end
 
 -- ── Buttons ───────────────────────────────────────────────────────────────────
@@ -220,6 +242,11 @@ optFrame:SetScript("OnShow", function()
     maxSlider:SetValue(db.maxRows or 5)
     durSlider:SetValue(db.duration or 15)
     fontSlider:SetValue(db.fontSize or 11)
+    if db.texture == "Flat" then
+        radioFlat:SetChecked(true);    radioTooltip:SetChecked(false)
+    else
+        radioTooltip:SetChecked(true); radioFlat:SetChecked(false)
+    end
     if db.growUp then
         radioUp:SetChecked(true);  radioDown:SetChecked(false)
     else

@@ -96,6 +96,13 @@ function LootMirror.RefreshFontSize()
     end
 end
 
+function LootMirror.RefreshTexture()
+    local texture = (LootMirrorDB and LootMirrorDB.texture) or "tooltip"
+    for _, row in ipairs(activeRows) do
+        LootMirror.ApplyTextureToRow(row, texture)
+    end
+end
+
 local function UpdateRowPositions()
     local growUp = LootMirrorDB and LootMirrorDB.growUp
     for i, row in ipairs(activeRows) do
@@ -209,6 +216,7 @@ core:SetScript("OnEvent", function(self, event, ...)
             LootMirrorDB.growUp   = LootMirrorDB.growUp   or false
             LootMirrorDB.duration = LootMirrorDB.duration or 15
             LootMirrorDB.fontSize = LootMirrorDB.fontSize or 11
+            LootMirrorDB.texture  = LootMirrorDB.texture  or "Blizzard Tooltip"
             if not LootMirrorDB.filterQuality then
                 LootMirrorDB.filterQuality = { [0]=true,[1]=true,[2]=true,[3]=true,[4]=true,[5]=true }
             end
