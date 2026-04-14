@@ -9,7 +9,7 @@ LootMirror shows what you and your group members loot in a clean, unobtrusive fe
 ## Features
 
 - **Full Loot Feed** — displays your own loot as well as loot received by party and raid members
-- **Blizzard-style visuals** — tooltip-styled rows with quality-colored icon borders matching WoW's native look
+- **Blizzard-style visuals** — tooltip-styled rows with quality-colored icon borders matching WoW's native look; alternatively a clean flat style
 - **Class colors** — player names are displayed in their class color, resolved live from the group roster
 - **Item tooltips** — hover a row to see the full item tooltip with equipped item comparison
 - **Item quality filter** — show or hide loot by quality (Poor through Legendary)
@@ -26,7 +26,7 @@ LootMirror shows what you and your group members loot in a clean, unobtrusive fe
 
 | Command | Description |
 |---|---|
-| `/lm` | Open or close the Options window |
+| `/lm` | Open the Options panel (Game Menu → Options → Addons → LootMirror) |
 | `/lm move` | Show or hide the draggable anchor bar |
 | `/lm test` | Spawn test bars (count matches your max bars setting) |
 
@@ -34,13 +34,14 @@ LootMirror shows what you and your group members loot in a clean, unobtrusive fe
 
 ## Options
 
-Open with `/lm`.
+Open via **Game Menu → Options → Addons → LootMirror** or with `/lm`.
 
 | Option | Description |
 |---|---|
 | **Maximum Loot Bars** | How many bars are shown at once (1–10) |
 | **Display Duration** | How long each bar stays visible (5–60 seconds, in 5s steps) |
 | **Font Size** | Text size of player and item name in each bar (8–18) |
+| **Bar Texture** | Visual style of each bar: **Blizzard** (tooltip-style) or **Flat** (solid dark border) |
 | **Grow Direction** | Whether the feed expands downward or upward from the anchor |
 | **Displayed Qualities** | Toggle Poor, Common, Uncommon, Rare, Epic, and Legendary loot on or off |
 
