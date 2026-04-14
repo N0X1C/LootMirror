@@ -223,6 +223,7 @@ core:SetScript("OnEvent", function(self, event, ...)
             LootMirror.MainFrame:ClearAllPoints()
             LootMirror.MainFrame:SetPoint(LootMirrorDB.point, UIParent, LootMirrorDB.point, LootMirrorDB.x, LootMirrorDB.y)
             RefreshClassCache()
+            print("|cff00ccff LootMirror:|r Loaded. Type |cffff9900/lm|r for options.")
         end
 
     elseif event == "GROUP_ROSTER_UPDATE" then

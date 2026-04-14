@@ -9,22 +9,8 @@ local QUALITY_INFO = {
     { id = 5, label = "Legendary" },
 }
 
-local optFrame = CreateFrame("Frame", "LootMirrorOptionsFrame", UIParent, "BasicFrameTemplate")
-optFrame:SetSize(300, 570)
-optFrame:SetPoint("CENTER")
-optFrame:SetMovable(true)
-optFrame:EnableMouse(true)
-optFrame:RegisterForDrag("LeftButton")
-optFrame:SetScript("OnDragStart", optFrame.StartMoving)
-optFrame:SetScript("OnDragStop",  optFrame.StopMovingOrSizing)
-optFrame:SetFrameStrata("DIALOG")
-optFrame:SetToplevel(true)
-optFrame:Hide()
-
--- Title
-local title = optFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-title:SetPoint("TOP", optFrame, "TOP", 0, -6)
-title:SetText("LootMirror – Options")
+local optFrame = CreateFrame("Frame", "LootMirrorOptionsFrame", UIParent)
+optFrame:SetSize(400, 570)
 
 local function Divider(anchorFrame, yOffset)
     local d = optFrame:CreateTexture(nil, "ARTWORK")
@@ -37,15 +23,15 @@ end
 
 -- ── Max Bars ─────────────────────────────────────────────────────────────────
 local maxLabel = optFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-maxLabel:SetPoint("TOPLEFT", optFrame, "TOPLEFT", 16, -42)
+maxLabel:SetPoint("TOPLEFT", optFrame, "TOPLEFT", 16, -16)
 maxLabel:SetText("Maximum Loot Bars")
 
 local maxValueLabel = optFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-maxValueLabel:SetPoint("TOPRIGHT", optFrame, "TOPRIGHT", -16, -42)
+maxValueLabel:SetPoint("TOPRIGHT", optFrame, "TOPRIGHT", -16, -16)
 
 local maxSlider = CreateFrame("Slider", "LootMirrorMaxSlider", optFrame, "OptionsSliderTemplate")
 maxSlider:SetPoint("TOPLEFT",  maxLabel, "BOTTOMLEFT",   8, -14)
-maxSlider:SetPoint("TOPRIGHT", optFrame, "TOPRIGHT",   -24, -56)
+maxSlider:SetPoint("TOPRIGHT", optFrame, "TOPRIGHT",   -24, -30)
 maxSlider:SetMinMaxValues(1, 10)
 maxSlider:SetValueStep(1)
 maxSlider:SetObeyStepOnDrag(true)
@@ -124,12 +110,12 @@ textureLabel:SetText("Bar Texture")
 local radioTooltip = CreateFrame("CheckButton", "LootMirrorRadioTooltip", optFrame, "UIRadioButtonTemplate")
 radioTooltip:SetPoint("TOPLEFT", textureLabel, "BOTTOMLEFT", 0, -6)
 radioTooltip.text:SetText("Blizzard")
-radioTooltip.text:SetFontObject("GameFontNormalSmall")
+radioTooltip.text:SetFontObject("GameFontNormal")
 
 local radioFlat = CreateFrame("CheckButton", "LootMirrorRadioFlat", optFrame, "UIRadioButtonTemplate")
 radioFlat:SetPoint("TOPLEFT", radioTooltip, "BOTTOMLEFT", 0, -4)
 radioFlat.text:SetText("Flat")
-radioFlat.text:SetFontObject("GameFontNormalSmall")
+radioFlat.text:SetFontObject("GameFontNormal")
 
 radioTooltip:SetScript("OnClick", function(self) self:SetChecked(true); radioFlat:SetChecked(false) end)
 radioFlat:SetScript("OnClick",    function(self) self:SetChecked(true); radioTooltip:SetChecked(false) end)
@@ -144,28 +130,27 @@ dirLabel:SetText("Grow Direction")
 local radioUp = CreateFrame("CheckButton", "LootMirrorRadioUp", optFrame, "UIRadioButtonTemplate")
 radioUp:SetPoint("TOPLEFT", dirLabel, "BOTTOMLEFT", 0, -6)
 radioUp.text:SetText("Grow upward")
-radioUp.text:SetFontObject("GameFontNormalSmall")
+radioUp.text:SetFontObject("GameFontNormal")
 
 local radioDown = CreateFrame("CheckButton", "LootMirrorRadioDown", optFrame, "UIRadioButtonTemplate")
 radioDown:SetPoint("TOPLEFT", radioUp, "BOTTOMLEFT", 0, -4)
 radioDown.text:SetText("Grow downward")
-radioDown.text:SetFontObject("GameFontNormalSmall")
+radioDown.text:SetFontObject("GameFontNormal")
 
 radioUp:SetScript("OnClick",   function(self) self:SetChecked(true); radioDown:SetChecked(false) end)
 radioDown:SetScript("OnClick", function(self) self:SetChecked(true); radioUp:SetChecked(false) end)
 
-Divider(radioDown)  -- anchor divider below the LAST radio button
+Divider(radioDown)
 
 -- ── Item Quality Filter ───────────────────────────────────────────────────────
 local qualLabel = optFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-qualLabel:SetPoint("TOPLEFT", radioDown, "BOTTOMLEFT", 0, -26)  -- anchor below radioDown
+qualLabel:SetPoint("TOPLEFT", radioDown, "BOTTOMLEFT", 0, -26)
 qualLabel:SetText("Displayed Qualities")
 
--- 6 checkboxes in 3 columns x 2 rows
 local qualChecks = {}
 local COL_W = 88
 local ROW_H = 26
-local lastQualCheck  -- track last checkbox for anchoring the divider below it
+local lastQualCheck
 
 for idx, info in ipairs(QUALITY_INFO) do
     local col = (idx - 1) % 3
@@ -178,13 +163,13 @@ for idx, info in ipairs(QUALITY_INFO) do
     local r, g, b = GetItemQualityColor(info.id)
     cb.text:SetText(string.format("|cff%02x%02x%02x%s|r",
         math.floor(r * 255), math.floor(g * 255), math.floor(b * 255), info.label))
-    cb.text:SetFontObject("GameFontNormalSmall")
+    cb.text:SetFontObject("GameFontNormal")
 
     qualChecks[info.id] = cb
-    if col == 0 then lastQualCheck = cb end  -- leftmost checkbox of each row = lowest anchor
+    if col == 0 then lastQualCheck = cb end
 end
 
--- ── Shared apply logic (used by both Test and Save) ──────────────────────────
+-- ── Shared apply logic ────────────────────────────────────────────────────────
 local function ApplySettings()
     LootMirrorDB.maxRows  = math.floor(maxSlider:GetValue() + 0.5)
     LootMirrorDB.duration = math.floor(durSlider:GetValue() / 5 + 0.5) * 5
@@ -208,7 +193,8 @@ btnDivider:SetPoint("TOP",      lastQualCheck, "BOTTOM",       0,  -12)
 
 local moveBtn = CreateFrame("Button", nil, optFrame, "GameMenuButtonTemplate")
 moveBtn:SetSize(120, 28)
-moveBtn:SetPoint("BOTTOM", optFrame, "BOTTOM", -64, 52)
+moveBtn:SetPoint("RIGHT", optFrame, "CENTER", -4, 0)
+moveBtn:SetPoint("TOP",   lastQualCheck, "BOTTOM", 0, -36)
 moveBtn:SetText("Move Anchor")
 moveBtn:SetScript("OnClick", function()
     SlashCmdList["LOOTMIRROR"]("move")
@@ -216,7 +202,8 @@ end)
 
 local testBtn = CreateFrame("Button", nil, optFrame, "GameMenuButtonTemplate")
 testBtn:SetSize(120, 28)
-testBtn:SetPoint("BOTTOM", optFrame, "BOTTOM", 64, 52)
+testBtn:SetPoint("LEFT", optFrame, "CENTER", 4, 0)
+testBtn:SetPoint("TOP",  lastQualCheck, "BOTTOM", 0, -36)
 testBtn:SetText("Test")
 testBtn:SetScript("OnClick", function()
     ApplySettings()
@@ -224,19 +211,15 @@ testBtn:SetScript("OnClick", function()
 end)
 
 local saveBtn = CreateFrame("Button", nil, optFrame, "GameMenuButtonTemplate")
-saveBtn:SetSize(200, 28)
-saveBtn:SetPoint("BOTTOM", optFrame, "BOTTOM", 0, 16)
-saveBtn:SetText("Save & Close")
+saveBtn:SetPoint("TOPLEFT",  moveBtn, "BOTTOMLEFT",  0, -8)
+saveBtn:SetPoint("TOPRIGHT", testBtn, "BOTTOMRIGHT", 0, -8)
+saveBtn:SetHeight(28)
+saveBtn:SetText("Save")
 saveBtn:SetScript("OnClick", function()
     ApplySettings()
-    if LootMirror.MainFrame:IsShown() then
-        LootMirror.MainFrame:Hide()
-    end
-    LootMirror.ClearFeed()
-    optFrame:Hide()
 end)
 
--- Load values from DB when frame is opened
+-- Load values from DB when panel is shown
 optFrame:SetScript("OnShow", function()
     local db = LootMirrorDB or {}
     maxSlider:SetValue(db.maxRows or 5)
@@ -258,12 +241,23 @@ optFrame:SetScript("OnShow", function()
     end
 end)
 
+-- ── Register in Game Menu → Options → Addons ─────────────────────────────────
+if Settings and Settings.RegisterCanvasLayoutCategory then
+    local category = Settings.RegisterCanvasLayoutCategory(optFrame, "LootMirror")
+    Settings.RegisterAddOnCategory(category)
+    LootMirror.optionsCategoryID = category:GetID()
+end
+
 -- Public API
 LootMirror.Options = {}
 function LootMirror.Options.Toggle()
-    if optFrame:IsShown() then
-        optFrame:Hide()
+    if LootMirror.optionsCategoryID then
+        Settings.OpenToCategory(LootMirror.optionsCategoryID)
     else
-        optFrame:Show()
+        if optFrame:IsShown() then
+            optFrame:Hide()
+        else
+            optFrame:Show()
+        end
     end
 end
