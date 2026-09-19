@@ -217,6 +217,10 @@ core:SetScript("OnEvent", function(self, event, ...)
             LootMirrorDB.duration = LootMirrorDB.duration or 15
             LootMirrorDB.fontSize = LootMirrorDB.fontSize or 11
             LootMirrorDB.texture  = LootMirrorDB.texture  or "Blizzard"
+            LootMirrorDB.optionsPoint = LootMirrorDB.optionsPoint or "CENTER"
+            LootMirrorDB.optionsRelativePoint = LootMirrorDB.optionsRelativePoint or "CENTER"
+            LootMirrorDB.optionsX = LootMirrorDB.optionsX or 0
+            LootMirrorDB.optionsY = LootMirrorDB.optionsY or 0
             if not LootMirrorDB.filterQuality then
                 LootMirrorDB.filterQuality = { [0]=true,[1]=true,[2]=true,[3]=true,[4]=true,[5]=true }
             end

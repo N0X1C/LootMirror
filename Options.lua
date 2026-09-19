@@ -11,6 +11,24 @@ local QUALITY_INFO = {
 
 local optFrame = CreateFrame("Frame", "LootMirrorOptionsFrame", UIParent)
 optFrame:SetSize(400, 570)
+optFrame:SetMovable(true)
+optFrame:EnableMouse(true)
+optFrame:RegisterForDrag("LeftButton")
+optFrame:SetClampedToScreen(true)
+
+optFrame:SetScript("OnDragStart", function(self)
+    self:StartMoving()
+end)
+
+optFrame:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    local point, _, relativePoint, x, y = self:GetPoint()
+    LootMirrorDB = LootMirrorDB or {}
+    LootMirrorDB.optionsPoint = point or "CENTER"
+    LootMirrorDB.optionsRelativePoint = relativePoint or point or "CENTER"
+    LootMirrorDB.optionsX = x or 0
+    LootMirrorDB.optionsY = y or 0
+end)
 
 local function Divider(anchorFrame, yOffset)
     local d = optFrame:CreateTexture(nil, "ARTWORK")
@@ -241,23 +259,25 @@ optFrame:SetScript("OnShow", function()
     end
 end)
 
--- ── Register in Game Menu → Options → Addons ─────────────────────────────────
-if Settings and Settings.RegisterCanvasLayoutCategory then
-    local category = Settings.RegisterCanvasLayoutCategory(optFrame, "LootMirror")
-    Settings.RegisterAddOnCategory(category)
-    LootMirror.optionsCategoryID = category:GetID()
+local function ApplyFramePosition()
+    local db = LootMirrorDB or {}
+    local point = db.optionsPoint or "CENTER"
+    local relativePoint = db.optionsRelativePoint or point
+    local x = db.optionsX or 0
+    local y = db.optionsY or 0
+
+    optFrame:ClearAllPoints()
+    optFrame:SetPoint(point, UIParent, relativePoint, x, y)
 end
+
+ApplyFramePosition()
 
 -- Public API
 LootMirror.Options = {}
 function LootMirror.Options.Toggle()
-    if LootMirror.optionsCategoryID then
-        Settings.OpenToCategory(LootMirror.optionsCategoryID)
+    if optFrame:IsShown() then
+        optFrame:Hide()
     else
-        if optFrame:IsShown() then
-            optFrame:Hide()
-        else
-            optFrame:Show()
-        end
+        optFrame:Show()
     end
 end
