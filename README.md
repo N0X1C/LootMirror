@@ -99,7 +99,7 @@ The anchor position is saved and restored automatically across sessions.
 | `Options.lua` | Options window UI (sliders, dropdowns, checkboxes, scrollable layout, custom color picker) |
 | `Core.lua` | Event handling, loot detection, filtering, slash commands |
 | `LootMirror.toc` | Addon metadata |
-| `PROGRESS.md` | Session notes / dev log — read this before making further changes |
+| `CLAUDE.md` | Session notes / dev log — read this before making further changes |
 
 ---
 
