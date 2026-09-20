@@ -4,7 +4,9 @@
 ## Author: N0X1C
 ## Version: 2.0
 ## SavedVariables: LootMirrorDB
+## SavedVariablesPerCharacter: LootMirrorCharDB
 
 LootFrame.lua
+Wishlist.lua
 Options.lua
 Core.lua

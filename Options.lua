@@ -14,17 +14,33 @@
 -- earlier purple/cyan scheme. Border alpha kept low so the thin (1px) edges
 -- read as subtle hairlines instead of bold outlines.
 local C = {
-    bg      = { 0.045, 0.045, 0.065, 0.95 },
-    card    = { 0.10,  0.10,  0.15,  0.55 },
-    border  = { 0.18,  0.40,  0.48,  0.55 },
-    accent  = { 0.18,  0.72,  0.92 },
-    header  = { 0.56,  0.82,  0.20 },
-    title   = { 1,     0.82,  0.25 },
-    text    = { 0.88,  0.88,  0.92 },
-    subtext = { 0.55,  0.55,  0.62 },
-    track   = { 0.16,  0.16,  0.22, 1 },
-    control = { 0.09,  0.09,  0.13, 0.9 },
+    bg          = { 0.045, 0.045, 0.065, 0.95 },
+    card        = { 0.10,  0.10,  0.15,  0.55 },
+    border      = { 0.18,  0.40,  0.48,  0.55 }, -- internal hairlines (dividers, input/swatch edges)
+    windowBorder = { 0, 0, 0, 1 },                -- the window's own outer edge -- solid black
+    accent      = { 0.18,  0.72,  0.92 },
+    header      = { 0.56,  0.82,  0.20 },
+    text        = { 0.88,  0.88,  0.92 },
+    subtext     = { 0.55,  0.55,  0.62 },
+    track       = { 0.16,  0.16,  0.22, 1 },
+    control     = { 0.09,  0.09,  0.13, 0.9 },
 }
+
+-- Blends color c1 toward c2 by t (0-1); used for hover tints and the
+-- secondary-button/tab background instead of swapping border color, since
+-- those elements are borderless/flat. Defined early since both the tab bar
+-- and the footer buttons below need it.
+local function MixColor(c1, c2, t)
+    return c1[1] + (c2[1] - c1[1]) * t,
+           c1[2] + (c2[2] - c1[2]) * t,
+           c1[3] + (c2[3] - c1[3]) * t
+end
+
+-- Secondary buttons/tabs sit visibly above the window background -- but well
+-- below the accent-filled "active"/primary look -- by brightening C.control
+-- toward C.border (the same muted blue-green hue used for card/hairline
+-- edges throughout the panel), not toward plain white/gray.
+local SECONDARY_BG = { MixColor(C.control, C.border, 0.5) }
 
 local WHITE = "Interface\\Buttons\\WHITE8x8"
 local PADDING = 20
@@ -35,7 +51,8 @@ local SCROLLBAR_WIDTH = 6
 local SCROLLBAR_GAP   = 6
 local CONTENT_WIDTH   = WIDTH - PADDING * 2 - SCROLLBAR_WIDTH - SCROLLBAR_GAP
 
-local HEADER_HEIGHT = 98  -- title/subtitle/panel-scale slider -- fixed, never scrolls
+local TAB_BAR_HEIGHT = 30
+local HEADER_HEIGHT = 98 + TAB_BAR_HEIGHT + 16 -- title/subtitle/panel-scale sliders + tab bar -- fixed, never scrolls
 local FOOTER_HEIGHT = 96  -- Move Anchor/Test/Save buttons -- fixed, never scrolls
 
 --------------------------------------------------------------------------
@@ -55,7 +72,7 @@ optFrame:SetBackdrop({
     edgeSize = 1,
 })
 optFrame:SetBackdropColor(C.bg[1], C.bg[2], C.bg[3], (LootMirrorDB and LootMirrorDB.optionsOpacity) or C.bg[4])
-optFrame:SetBackdropBorderColor(unpack(C.border))
+optFrame:SetBackdropBorderColor(unpack(C.windowBorder))
 optFrame:SetScale((LootMirrorDB and LootMirrorDB.optionsScale) or 1)
 optFrame:Hide()
 
@@ -70,23 +87,11 @@ optFrame:SetScript("OnDragStop", function(self)
     LootMirrorDB.optionsY = y or 0
 end)
 
--- Top accent line (two solid halves instead of a gradient -- Texture:SetGradient
--- doesn't reliably render on this client, see the color picker notes below)
-local topAccentLeft = optFrame:CreateTexture(nil, "OVERLAY")
-topAccentLeft:SetPoint("TOPLEFT", optFrame, "TOPLEFT", 1, -1)
-topAccentLeft:SetPoint("BOTTOMRIGHT", optFrame, "TOP", 0, -3)
-topAccentLeft:SetColorTexture(unpack(C.accent))
-
-local topAccentRight = optFrame:CreateTexture(nil, "OVERLAY")
-topAccentRight:SetPoint("TOPLEFT", optFrame, "TOP", 0, -1)
-topAccentRight:SetPoint("BOTTOMRIGHT", optFrame, "TOPRIGHT", -1, -3)
-topAccentRight:SetColorTexture(unpack(C.header))
-
 -- Title
 local title = optFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 title:SetPoint("TOP", optFrame, "TOP", 0, -18)
 title:SetText("LootMirror")
-title:SetTextColor(unpack(C.title))
+title:SetTextColor(unpack(C.accent))
 
 local subtitle = optFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 subtitle:SetPoint("TOP", title, "BOTTOM", 0, -4)
@@ -95,11 +100,15 @@ subtitle:SetTextColor(unpack(C.subtext))
 
 -- Close button (custom, no template dependency)
 local closeBtn = CreateFrame("Button", nil, optFrame)
-closeBtn:SetSize(24, 24)
-closeBtn:SetPoint("TOPRIGHT", optFrame, "TOPRIGHT", -8, -8)
+closeBtn:SetSize(44, 44)
+closeBtn:SetPoint("TOPRIGHT", optFrame, "TOPRIGHT", -4, -4)
 local closeText = closeBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 closeText:SetPoint("CENTER")
 closeText:SetText("\195\151") -- ×
+do
+    local path, _, flags = closeText:GetFont()
+    closeText:SetFont(path, 32, flags)
+end
 closeText:SetTextColor(0.65, 0.65, 0.72, 1)
 closeBtn:SetScript("OnEnter", function() closeText:SetTextColor(1, 0.35, 0.35, 1) end)
 closeBtn:SetScript("OnLeave", function() closeText:SetTextColor(0.65, 0.65, 0.72, 1) end)
@@ -220,98 +229,79 @@ panelOpacitySlider:HookScript("OnValueChanged", function(self, val)
 end)
 
 --------------------------------------------------------------------------
--- Scrollable content area
+-- Tabs: Options / Wishlist. Both live in this one window/frame -- their
+-- content areas occupy the identical rect below (see HEADER_HEIGHT/
+-- FOOTER_HEIGHT above), with only one shown at a time. The Wishlist tab's
+-- actual contents are built by Wishlist.lua (LootMirror.Wishlist.BuildUI),
+-- called further down once its container frame exists.
 --------------------------------------------------------------------------
-local scrollFrame = CreateFrame("ScrollFrame", nil, optFrame)
-scrollFrame:SetPoint("TOPLEFT", optFrame, "TOPLEFT", PADDING, -HEADER_HEIGHT)
-scrollFrame:SetPoint("BOTTOMRIGHT", optFrame, "BOTTOMRIGHT", -(PADDING + SCROLLBAR_WIDTH + SCROLLBAR_GAP), FOOTER_HEIGHT)
-scrollFrame:EnableMouseWheel(true)
+local TAB_GAP = 8
+local TAB_WIDTH = (WIDTH - PADDING * 2 - TAB_GAP) / 2
+local TAB_BAR_Y = 98 + 8 -- just below the Panel Scale/Opacity row
 
--- Scroll children must be sized explicitly (SetWidth/SetHeight) with a single
--- anchor point -- the ScrollFrame manages the child's position internally to
--- implement scrolling, and a second competing anchor (e.g. also anchoring
--- TOPRIGHT to the scroll frame) fights that, which is why every child of
--- `content` rendered as empty/invisible in the first version of this panel.
-local content = CreateFrame("Frame", nil, scrollFrame)
-content:SetSize(CONTENT_WIDTH, 1) -- height corrected once total content height is known, near the bottom of this file
-scrollFrame:SetScrollChild(content)
-content:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, 0)
+local tabButtons = {}
 
--- Custom scrollbar (track + thumb): flat and borderless, same treatment as
--- the sliders/cards -- a thin translucent track with a slim accent-colored
--- thumb inset 1px inside it, instead of a bordered box.
-local scrollbarTrack = CreateFrame("Frame", nil, optFrame, "BackdropTemplate")
-scrollbarTrack:SetPoint("TOPLEFT", scrollFrame, "TOPRIGHT", SCROLLBAR_GAP, 0)
-scrollbarTrack:SetPoint("BOTTOMRIGHT", scrollFrame, "BOTTOMRIGHT", SCROLLBAR_GAP + SCROLLBAR_WIDTH, 0)
-scrollbarTrack:SetBackdrop({ bgFile = WHITE })
-scrollbarTrack:SetBackdropColor(C.track[1], C.track[2], C.track[3], 0.5)
+local function CreateTabButton(text, name)
+    local btn = CreateFrame("Button", nil, optFrame, "BackdropTemplate")
+    btn:SetSize(TAB_WIDTH, TAB_BAR_HEIGHT)
+    btn:SetBackdrop({ bgFile = WHITE })
+    local label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetPoint("CENTER")
+    label:SetText(text)
+    btn.label = label
+    btn.name = name
+    tabButtons[name] = btn
+    return btn
+end
 
-local scrollThumb = CreateFrame("Button", nil, scrollbarTrack, "BackdropTemplate")
-scrollThumb:SetPoint("TOPLEFT", scrollbarTrack, "TOPLEFT", 1, -1)
-scrollThumb:SetPoint("TOPRIGHT", scrollbarTrack, "TOPRIGHT", -1, -1)
-scrollThumb:SetBackdrop({ bgFile = WHITE })
-scrollThumb:SetBackdropColor(unpack(C.accent))
-scrollThumb:SetScript("OnEnter", function(self) self:SetBackdropColor(1, 1, 1, 1) end)
-scrollThumb:SetScript("OnLeave", function(self) self:SetBackdropColor(unpack(C.accent)) end)
+local optionsTabBtn  = CreateTabButton("Options",  "options")
+local wishlistTabBtn = CreateTabButton("Wishlist", "wishlist")
+optionsTabBtn:SetPoint("TOPLEFT", optFrame, "TOPLEFT", PADDING, -TAB_BAR_Y)
+wishlistTabBtn:SetPoint("LEFT", optionsTabBtn, "RIGHT", TAB_GAP, 0)
 
-local function UpdateScrollbar()
-    local visibleH = scrollFrame:GetHeight()
-    local contentH = content:GetHeight()
-    local maxScroll = math.max(contentH - visibleH, 0)
-    local trackH = scrollbarTrack:GetHeight() - 2
-    if maxScroll <= 0 or trackH <= 0 then
-        scrollThumb:Hide()
-        return
+local function RefreshTabVisuals(activeName)
+    for name, btn in pairs(tabButtons) do
+        if name == activeName then
+            btn:SetBackdropColor(C.accent[1], C.accent[2], C.accent[3], 0.9)
+            btn.label:SetTextColor(0.05, 0.05, 0.05)
+            btn.label:SetShadowOffset(0, 0)
+        else
+            btn:SetBackdropColor(SECONDARY_BG[1], SECONDARY_BG[2], SECONDARY_BG[3], 1)
+            btn.label:SetTextColor(unpack(C.text))
+            btn.label:SetShadowOffset(1, -1)
+        end
     end
-    scrollThumb:Show()
-    local thumbH = math.min(math.max((visibleH / contentH) * trackH, 20), trackH)
-    scrollThumb:SetHeight(thumbH)
-    local scrollPct = scrollFrame:GetVerticalScroll() / maxScroll
-    local travel = trackH - thumbH
-    scrollThumb:ClearAllPoints()
-    scrollThumb:SetPoint("TOPLEFT", scrollbarTrack, "TOPLEFT", 1, -1 - scrollPct * travel)
-    scrollThumb:SetPoint("TOPRIGHT", scrollbarTrack, "TOPRIGHT", -1, -1 - scrollPct * travel)
 end
 
-local function SetScrollPct(pct)
-    pct = math.min(math.max(pct, 0), 1)
-    local maxScroll = math.max(content:GetHeight() - scrollFrame:GetHeight(), 0)
-    scrollFrame:SetVerticalScroll(pct * maxScroll)
-    UpdateScrollbar()
-end
+--------------------------------------------------------------------------
+-- Scrollable content area (mechanics shared with Wishlist.lua's own list --
+-- see LootMirror.CreateScrollList in LootFrame.lua)
+--------------------------------------------------------------------------
+local optionsScrollList = LootMirror.CreateScrollList(optFrame, {
+    anchorFn = function(sf, sbWidth, sbGap)
+        sf:SetPoint("TOPLEFT", optFrame, "TOPLEFT", PADDING, -HEADER_HEIGHT)
+        sf:SetPoint("BOTTOMRIGHT", optFrame, "BOTTOMRIGHT", -(PADDING + sbWidth + sbGap), FOOTER_HEIGHT)
+    end,
+    contentWidth = CONTENT_WIDTH,
+    scrollbarWidth = SCROLLBAR_WIDTH,
+    scrollbarGap = SCROLLBAR_GAP,
+})
+local scrollFrame     = optionsScrollList.scrollFrame
+local content         = optionsScrollList.content
+local scrollbarTrack  = optionsScrollList.scrollbarTrack
+local UpdateScrollbar = optionsScrollList.UpdateScrollbar
+local SetScrollPct    = optionsScrollList.SetScrollPct
 
-local function ScrollThumbOnUpdate(self)
-    local scale = scrollbarTrack:GetEffectiveScale()
-    local _, my = GetCursorPosition()
-    my = my / scale
-    local top = scrollbarTrack:GetTop()
-    local trackH = scrollbarTrack:GetHeight() - 2
-    local thumbH = self:GetHeight()
-    local travel = trackH - thumbH
-    if travel <= 0 then return end
-    local pct = (top - 1 - thumbH / 2 - my) / travel
-    SetScrollPct(pct)
-end
-
--- OnUpdate is only attached while a drag is actually happening, not left
--- running every frame for the lifetime of the options window.
-scrollThumb:SetScript("OnMouseDown", function(self)
-    self:SetScript("OnUpdate", ScrollThumbOnUpdate)
-end)
-scrollThumb:SetScript("OnMouseUp", function(self)
-    self:SetScript("OnUpdate", nil)
-end)
-
-scrollFrame:SetScript("OnMouseWheel", function(self, delta)
-    local maxScroll = math.max(content:GetHeight() - self:GetHeight(), 0)
-    if maxScroll <= 0 then return end
-    local newScroll = self:GetVerticalScroll() - delta * 40
-    newScroll = math.min(math.max(newScroll, 0), maxScroll)
-    self:SetVerticalScroll(newScroll)
-    UpdateScrollbar()
-end)
-
-scrollFrame:SetScript("OnSizeChanged", UpdateScrollbar)
+--------------------------------------------------------------------------
+-- Wishlist tab panel: a sibling content area occupying the exact same rect
+-- as scrollFrame above (full width here, since Wishlist.lua reserves its
+-- own scrollbar space internally rather than sharing this one). Populated
+-- by LootMirror.Wishlist.BuildUI near the tab-switching logic below.
+--------------------------------------------------------------------------
+local wishlistTabPanel = CreateFrame("Frame", nil, optFrame)
+wishlistTabPanel:SetPoint("TOPLEFT", optFrame, "TOPLEFT", PADDING, -HEADER_HEIGHT)
+wishlistTabPanel:SetPoint("BOTTOMRIGHT", optFrame, "BOTTOMRIGHT", -PADDING, FOOTER_HEIGHT)
+wishlistTabPanel:Hide()
 
 --------------------------------------------------------------------------
 -- Layout helpers for the scrollable content area
@@ -458,7 +448,15 @@ local function CreateModernDropdown(labelText, options)
     return control
 end
 
-optFrame:HookScript("OnHide", function() CloseAllMenus() end)
+-- Closing the options window (via its × button, Escape, or any other means)
+-- also hides the anchor bar/Move Anchor window -- previously that only
+-- happened via Save, so leaving via × left it stuck on screen.
+optFrame:HookScript("OnHide", function()
+    CloseAllMenus()
+    if LootMirror.MainFrame and LootMirror.MainFrame:IsShown() then
+        LootMirror.MainFrame:Hide()
+    end
+end)
 
 --------------------------------------------------------------------------
 -- Quality filter checkbox (self-contained, matches the dark theme)
@@ -967,6 +965,33 @@ content:SetHeight(currentY)
 UpdateScrollbar()
 
 --------------------------------------------------------------------------
+-- Tab switching: swap which content area (scrollFrame+scrollbar, or the
+-- Wishlist panel) is shown, and restyle the tab buttons to match. Built
+-- here since it needs both content areas to already exist.
+--------------------------------------------------------------------------
+local TAB_SUBTITLES = {
+    options  = "Loot Feed Configuration",
+    wishlist = "Items to watch for in the loot feed",
+}
+
+local function ShowTab(name)
+    scrollFrame:SetShown(name == "options")
+    scrollbarTrack:SetShown(name == "options")
+    wishlistTabPanel:SetShown(name == "wishlist")
+    subtitle:SetText(TAB_SUBTITLES[name] or TAB_SUBTITLES.options)
+    RefreshTabVisuals(name)
+end
+
+optionsTabBtn:SetScript("OnClick", function() ShowTab("options") end)
+wishlistTabBtn:SetScript("OnClick", function() ShowTab("wishlist") end)
+
+if LootMirror.Wishlist and LootMirror.Wishlist.BuildUI then
+    LootMirror.Wishlist.BuildUI(wishlistTabPanel, WIDTH - PADDING * 2)
+end
+
+ShowTab("options")
+
+--------------------------------------------------------------------------
 -- Settings application
 --------------------------------------------------------------------------
 local function ApplySettings()
@@ -1005,20 +1030,6 @@ end
 --------------------------------------------------------------------------
 -- Footer buttons: fixed at the bottom of optFrame, outside the scroll area.
 --------------------------------------------------------------------------
--- Blends color c1 toward c2 by t (0-1); used for hover tints below instead of
--- swapping border color, since these buttons are borderless/flat now.
-local function MixColor(c1, c2, t)
-    return c1[1] + (c2[1] - c1[1]) * t,
-           c1[2] + (c2[2] - c1[2]) * t,
-           c1[3] + (c2[3] - c1[3]) * t
-end
-
--- Secondary buttons (Move Anchor / Test) sit visibly above the window
--- background -- but well below Save's solid accent fill -- by brightening
--- C.control toward C.border (the same muted blue-green hue already used for
--- card/hairline edges throughout the panel), not toward plain white/gray.
-local SECONDARY_BG = { MixColor(C.control, C.border, 0.5) }
-
 local function CreateModernButton(width, text, isPrimary)
     local btn = CreateFrame("Button", nil, optFrame, "BackdropTemplate")
     btn:SetSize(width, 30)
@@ -1066,10 +1077,7 @@ local saveBtn = CreateModernButton(WIDTH - PADDING * 2, "Save", true)
 saveBtn:SetPoint("BOTTOM", optFrame, "BOTTOM", 0, 14)
 saveBtn:SetScript("OnClick", function()
     ApplySettings()
-    optFrame:Hide()
-    if LootMirror.MainFrame and LootMirror.MainFrame:IsShown() then
-        LootMirror.MainFrame:Hide()
-    end
+    optFrame:Hide() -- OnHide (above) also closes the anchor bar if it's open
 end)
 
 local moveBtn = CreateModernButton(halfWidth, "Move Anchor", false)

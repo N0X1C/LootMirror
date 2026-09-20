@@ -174,16 +174,40 @@ end
 -- Acquires a pooled row (LootMirror.AcquireRow reuses released rows instead of
 -- creating new ones -- see LootFrame.lua) and displays one loot entry on it.
 -- Wrapped by DisplayLoot below so a bad itemLink/state can never fail silently.
-local function DisplayLootImpl(player, itemLink, count, bypassFilter)
-    -- Single GetItemInfo call: used for filter check and row population
-    local itemName, _, quality, _, _, _, _, _, _, itemTexture, _, itemClassID = C_Item.GetItemInfo(itemLink)
-    if quality and not bypassFilter and ShouldFilterLoot(quality, itemClassID) then return end
-
+-- forceWishlist lets a caller (currently only the /lm test demo row) show
+-- the wishlist highlight regardless of the real wishlist contents, so the
+-- look can be previewed without needing a matching item actually saved.
+-- isTest suppresses the self-loot auto-removal below for /lm test's other
+-- (real-match) demo rows -- otherwise a player whose character name happens
+-- to match one of the test's hardcoded NPC names (Thrall, Jaina, ...) could
+-- have a real wishlist entry deleted just by clicking Test.
+local function DisplayLootImpl(player, itemLink, count, bypassFilter, forceWishlist, isTest)
     local itemID = tonumber(itemLink:match("|Hitem:(%d+)"))
+    local isRealWishlistMatch = itemID ~= nil and LootMirror.Wishlist and LootMirror.Wishlist.IsWishlisted(itemID)
+
+    -- Single GetItemInfo call: used for filter check and row population.
+    -- A wishlisted item always bypasses the equipment/quality filter, same
+    -- as bypassFilter -- you explicitly asked to be told about this one, so
+    -- the general noise-reduction filters shouldn't be able to hide it.
+    local itemName, _, quality, _, _, _, _, _, _, itemTexture, _, itemClassID = C_Item.GetItemInfo(itemLink)
+    if quality and not bypassFilter and not isRealWishlistMatch and ShouldFilterLoot(quality, itemClassID) then return end
 
     local row = LootMirror.AcquireRow()
     row.itemLink   = itemLink
     row.playerName = player
+
+    LootMirror.SetRowWishlist(row, forceWishlist or isRealWishlistMatch)
+
+    -- You got it -- stop tracking it. Only for your own pickup, not a
+    -- groupmate's (they might still be rolling/holding it for you, and you
+    -- still want your own copy either way). This also covers being traded
+    -- the item: a trade delivery fires the same "You receive item" chat
+    -- message as looting, so it reaches this same self-loot path.
+    if isRealWishlistMatch and not isTest and player == UnitName("player") then
+        LootMirror.Wishlist.Remove(itemID)
+        print("|cff00ccffLootMirror:|r Got " .. itemLink .. " -- removed it from your wishlist.")
+        if LootMirror.Wishlist.RefreshUI then LootMirror.Wishlist.RefreshUI() end
+    end
 
     local pr, pg, pb = GetClassColor(player)
     LootMirror.SetRowPlayer(row, player, pr, pg, pb)
@@ -192,7 +216,10 @@ local function DisplayLootImpl(player, itemLink, count, bypassFilter)
     -- Pass pre-fetched data; only queue if still not cached
     if not ApplyItemData(row, itemLink, count, itemName, quality, itemTexture) and itemID then
         if not pendingItems[itemID] then pendingItems[itemID] = {} end
-        table.insert(pendingItems[itemID], { row = row, count = count, itemLink = itemLink, bypassFilter = bypassFilter })
+        table.insert(pendingItems[itemID], {
+            row = row, count = count, itemLink = itemLink,
+            bypassFilter = bypassFilter or isRealWishlistMatch,
+        })
     end
 
     table.insert(activeRows, 1, row)
@@ -233,8 +260,8 @@ end
 -- runtime error inside DisplayLootImpl (bad link, nil field, etc.) would just
 -- vanish -- the client only prints Lua errors to chat if the player has
 -- "Show Lua Errors" enabled, which is off by default.
-local function DisplayLoot(player, itemLink, count, bypassFilter)
-    local ok, err = pcall(DisplayLootImpl, player, itemLink, count, bypassFilter)
+local function DisplayLoot(player, itemLink, count, bypassFilter, forceWishlist, isTest)
+    local ok, err = pcall(DisplayLootImpl, player, itemLink, count, bypassFilter, forceWishlist, isTest)
     if not ok then
         print("|cffff0000LootMirror error:|r " .. tostring(err))
     end
@@ -291,7 +318,7 @@ core:SetScript("OnEvent", function(self, event, ...)
             LootMirror.MainFrame:ClearAllPoints()
             LootMirror.MainFrame:SetPoint(LootMirrorDB.point, UIParent, LootMirrorDB.point, LootMirrorDB.x, LootMirrorDB.y)
             RefreshClassCache()
-            print("|cff00ccffLootMirror:|r Loaded. Type |cffff9900/lm|r for options.")
+            if LootMirror.Wishlist and LootMirror.Wishlist.Init then LootMirror.Wishlist.Init() end
         end
 
     elseif event == "GROUP_ROSTER_UPDATE" then
@@ -357,8 +384,14 @@ core:SetScript("OnEvent", function(self, event, ...)
 end)
 
 local function RunLootTest()
+    -- The first entry always previews the wishlist highlight (gold border +
+    -- star badge), regardless of what's actually on the wishlist -- so the
+    -- look can be checked without needing a matching item saved first. Every
+    -- other entry uses the real wishlist match, so actually wishlisting one
+    -- of these items (e.g. Sulfuras) and re-running the test verifies the
+    -- real drop-matching path too.
     local pool = {
-        { p = "Sylvanas",  class = "HUNTER",      i = "|cffa335ee|Hitem:18803::::::::70:::::|h[Ashbringer]|h|r" },
+        { p = "Sylvanas",  class = "HUNTER",      i = "|cffa335ee|Hitem:18803::::::::70:::::|h[Ashbringer]|h|r", wishlist = true },
         { p = "Arthas",    class = "DEATHKNIGHT",  i = "|cffff8000|Hitem:20928::::::::70:::::|h[Death's Sting]|h|r" },
         { p = "Anduin",    class = "PRIEST",       i = "|cffa335ee|Hitem:9449::::::::70:::::|h[Cord of the Earth]|h|r", c = 3 },
         { p = "Thrall",    class = "SHAMAN",       i = "|cff0070dd|Hitem:17182::::::::70:::::|h[Sulfuras]|h|r" },
@@ -388,7 +421,7 @@ local function RunLootTest()
                 -- bar layout/appearance, not exercise filter settings, so it
                 -- should reliably fill Max Loot Bars regardless of what's
                 -- currently checked under Displayed Qualities.
-                DisplayLoot(v.p, v.i, v.c, true)
+                DisplayLoot(v.p, v.i, v.c, true, v.wishlist, true)
             end)
         end
     end

@@ -6,13 +6,17 @@ LootMirror = {}
 
 local framePool = {}
 
+-- Wishlist highlight: overrides the row's configured border color while
+-- row.isWishlisted is true, restored via row.lastBorderColor (stashed by
+-- ApplyColorsToRow) once it's cleared. See LootMirror.SetRowWishlist below.
+local WISHLIST_BORDER = { 1, 0.82, 0.1 }
+
 -- Anchor bar palette -- kept in sync with the dark theme in Options.lua
--- (accent = logo blue, border = the same low-alpha blue-tinted hairline).
+-- (accent = logo blue). Border matches the main window's own outer edge:
+-- solid black, full opacity.
 local ANCHOR_BG      = { 0.06,  0.06,  0.09,  0.95 }
-local ANCHOR_BORDER  = { 0.18,  0.40,  0.48,  0.55 }
+local ANCHOR_BORDER  = { 0, 0, 0, 1 }
 local ANCHOR_ACCENT  = { 0.18,  0.72,  0.92 }
-local ANCHOR_HEADER  = { 0.56,  0.82,  0.20 }
-local ANCHOR_TITLE   = { 1,     0.82,  0.25 }
 local ANCHOR_SUBTEXT = { 0.65,  0.65,  0.72 }
 
 -- Anchor bar: marks the feed start point
@@ -31,22 +35,10 @@ anchor:SetBackdropColor(unpack(ANCHOR_BG))
 anchor:SetBackdropBorderColor(unpack(ANCHOR_BORDER))
 anchor:Hide()
 
--- Top accent line (two solid halves instead of a gradient -- Texture:SetGradient
--- doesn't reliably render on this client, see Options.lua's color picker notes)
-local anchorAccentLeft = anchor:CreateTexture(nil, "OVERLAY")
-anchorAccentLeft:SetPoint("TOPLEFT", anchor, "TOPLEFT", 1, -1)
-anchorAccentLeft:SetPoint("BOTTOMRIGHT", anchor, "TOP", 0, -3)
-anchorAccentLeft:SetColorTexture(unpack(ANCHOR_ACCENT))
-
-local anchorAccentRight = anchor:CreateTexture(nil, "OVERLAY")
-anchorAccentRight:SetPoint("TOPLEFT", anchor, "TOP", 0, -1)
-anchorAccentRight:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", -1, -3)
-anchorAccentRight:SetColorTexture(unpack(ANCHOR_HEADER))
-
 local anchorTitle = anchor:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 anchorTitle:SetPoint("TOP", anchor, "TOP", 0, -7)
 anchorTitle:SetText("LootMirror")
-anchorTitle:SetTextColor(unpack(ANCHOR_TITLE))
+anchorTitle:SetTextColor(unpack(ANCHOR_ACCENT))
 
 local anchorSubtext = anchor:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 anchorSubtext:SetPoint("TOP", anchorTitle, "BOTTOM", 0, -2)
@@ -61,6 +53,126 @@ anchor:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
     if LootMirror.SavePosition then LootMirror.SavePosition() end
 end)
+
+--------------------------------------------------------------------------
+-- Shared scrollable list: a ScrollFrame + its scroll-child `content` frame,
+-- plus a thin custom scrollbar (track+thumb) wired up for mouse-wheel and
+-- drag-to-scroll. Used by both Options.lua's settings list and Wishlist.lua's
+-- item list so the mechanics/look can't drift between them the way two
+-- separately hand-rolled copies eventually would.
+--
+-- opts:
+--   anchorFn(scrollFrame, scrollbarWidth, scrollbarGap) -- required; sets
+--     the scrollFrame's own TOPLEFT/BOTTOMRIGHT anchors. Takes the reserved
+--     scrollbar width/gap so it can leave room for scrollbarTrack on the
+--     right -- how much space is available/who it's anchored to differs
+--     per caller.
+--   contentWidth -- required; sizes `content` up front, since it needs a
+--     width before the scrollFrame itself has a measured one to read.
+--   wheelStep -- optional, default 40; pixels scrolled per wheel notch.
+--   scrollbarWidth / scrollbarGap -- optional, default 6 / 6.
+--
+-- Returns { scrollFrame, content, scrollbarTrack, UpdateScrollbar, SetScrollPct }.
+function LootMirror.CreateScrollList(parent, opts)
+    local scrollbarWidth = opts.scrollbarWidth or 6
+    local scrollbarGap   = opts.scrollbarGap or 6
+    local wheelStep       = opts.wheelStep or 40
+    local WHITE = "Interface\\Buttons\\WHITE8x8"
+
+    local scrollFrame = CreateFrame("ScrollFrame", nil, parent)
+    scrollFrame:EnableMouseWheel(true)
+    opts.anchorFn(scrollFrame, scrollbarWidth, scrollbarGap)
+
+    -- See Options.lua's original comment on this pattern: scroll children
+    -- need an explicit size and a single anchor point -- the ScrollFrame
+    -- manages the child's position internally to implement scrolling, and a
+    -- second competing anchor (e.g. also anchoring TOPRIGHT) fights that.
+    local content = CreateFrame("Frame", nil, scrollFrame)
+    content:SetSize(opts.contentWidth, 1) -- height corrected by the caller once it's known
+    scrollFrame:SetScrollChild(content)
+    content:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, 0)
+
+    local scrollbarTrack = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    scrollbarTrack:SetPoint("TOPLEFT", scrollFrame, "TOPRIGHT", scrollbarGap, 0)
+    scrollbarTrack:SetPoint("BOTTOMRIGHT", scrollFrame, "BOTTOMRIGHT", scrollbarGap + scrollbarWidth, 0)
+    scrollbarTrack:SetBackdrop({ bgFile = WHITE })
+    scrollbarTrack:SetBackdropColor(0.16, 0.16, 0.22, 0.5)
+
+    local scrollThumb = CreateFrame("Button", nil, scrollbarTrack, "BackdropTemplate")
+    scrollThumb:SetPoint("TOPLEFT", scrollbarTrack, "TOPLEFT", 1, -1)
+    scrollThumb:SetPoint("TOPRIGHT", scrollbarTrack, "TOPRIGHT", -1, -1)
+    scrollThumb:SetBackdrop({ bgFile = WHITE })
+    scrollThumb:SetBackdropColor(0.18, 0.72, 0.92)
+    scrollThumb:SetScript("OnEnter", function(self) self:SetBackdropColor(1, 1, 1, 1) end)
+    scrollThumb:SetScript("OnLeave", function(self) self:SetBackdropColor(0.18, 0.72, 0.92) end)
+
+    local function UpdateScrollbar()
+        local visibleH = scrollFrame:GetHeight()
+        local contentH = content:GetHeight()
+        local maxScroll = math.max(contentH - visibleH, 0)
+        local trackH = scrollbarTrack:GetHeight() - 2
+        if maxScroll <= 0 or trackH <= 0 then
+            scrollThumb:Hide()
+            return
+        end
+        scrollThumb:Show()
+        local thumbH = math.min(math.max((visibleH / contentH) * trackH, 20), trackH)
+        scrollThumb:SetHeight(thumbH)
+        local scrollPct = scrollFrame:GetVerticalScroll() / maxScroll
+        local travel = trackH - thumbH
+        scrollThumb:ClearAllPoints()
+        scrollThumb:SetPoint("TOPLEFT", scrollbarTrack, "TOPLEFT", 1, -1 - scrollPct * travel)
+        scrollThumb:SetPoint("TOPRIGHT", scrollbarTrack, "TOPRIGHT", -1, -1 - scrollPct * travel)
+    end
+
+    local function SetScrollPct(pct)
+        pct = math.min(math.max(pct, 0), 1)
+        local maxScroll = math.max(content:GetHeight() - scrollFrame:GetHeight(), 0)
+        scrollFrame:SetVerticalScroll(pct * maxScroll)
+        UpdateScrollbar()
+    end
+
+    local function ScrollThumbOnUpdate(self)
+        local scale = scrollbarTrack:GetEffectiveScale()
+        local _, my = GetCursorPosition()
+        my = my / scale
+        local top = scrollbarTrack:GetTop()
+        local trackH = scrollbarTrack:GetHeight() - 2
+        local thumbH = self:GetHeight()
+        local travel = trackH - thumbH
+        if travel <= 0 then return end
+        local pct = (top - 1 - thumbH / 2 - my) / travel
+        SetScrollPct(pct)
+    end
+
+    -- OnUpdate is only attached while a drag is actually happening, not left
+    -- running every frame for the lifetime of the containing window.
+    scrollThumb:SetScript("OnMouseDown", function(self)
+        self:SetScript("OnUpdate", ScrollThumbOnUpdate)
+    end)
+    scrollThumb:SetScript("OnMouseUp", function(self)
+        self:SetScript("OnUpdate", nil)
+    end)
+
+    scrollFrame:SetScript("OnMouseWheel", function(self, delta)
+        local maxScroll = math.max(content:GetHeight() - self:GetHeight(), 0)
+        if maxScroll <= 0 then return end
+        local newScroll = self:GetVerticalScroll() - delta * wheelStep
+        newScroll = math.min(math.max(newScroll, 0), maxScroll)
+        self:SetVerticalScroll(newScroll)
+        UpdateScrollbar()
+    end)
+
+    scrollFrame:SetScript("OnSizeChanged", UpdateScrollbar)
+
+    return {
+        scrollFrame = scrollFrame,
+        content = content,
+        scrollbarTrack = scrollbarTrack,
+        UpdateScrollbar = UpdateScrollbar,
+        SetScrollPct = SetScrollPct,
+    }
+end
 
 -- Loot row (backdrop is applied by AcquireRow)
 local function CreateLootRow()
@@ -90,6 +202,13 @@ local function CreateLootRow()
     row.Count = iconBorder:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
     row.Count:SetPoint("BOTTOMRIGHT", iconBorder, "BOTTOMRIGHT", 1, 1)
     row.Count:SetText("")
+
+    -- Wishlist star badge (top-left of icon), shown by LootMirror.SetRowWishlist
+    row.WishlistIcon = iconBorder:CreateTexture(nil, "OVERLAY", nil, 1)
+    row.WishlistIcon:SetSize(14, 14)
+    row.WishlistIcon:SetPoint("CENTER", iconBorder, "TOPLEFT", 1, -1)
+    row.WishlistIcon:SetAtlas("auctionhouse-icon-favorite")
+    row.WishlistIcon:Hide()
 
     -- Player name (top, in class color)
     row.PlayerText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -172,11 +291,33 @@ function LootMirror.ApplyTextureToRow(row, textureName, borderWidth)
     end
 end
 
+local function ApplyRowBorderColor(row, borderR, borderG, borderB)
+    if row.isWishlisted then
+        row:SetBackdropBorderColor(WISHLIST_BORDER[1], WISHLIST_BORDER[2], WISHLIST_BORDER[3], 1)
+    else
+        row:SetBackdropBorderColor(borderR or 0.4, borderG or 0.4, borderB or 0.5, 1)
+    end
+end
+
 -- Tints the row's background/border (set via ApplyTextureToRow above).
 -- bgA is the background opacity (0-1); border is always drawn fully opaque.
+-- borderR/G/B is stashed on the row so SetRowWishlist can restore it after
+-- the wishlist highlight (which overrides the border color) is cleared.
 function LootMirror.ApplyColorsToRow(row, bgR, bgG, bgB, bgA, borderR, borderG, borderB)
     row:SetBackdropColor(bgR or 0, bgG or 0, bgB or 0, bgA or 0.85)
-    row:SetBackdropBorderColor(borderR or 0.4, borderG or 0.4, borderB or 0.5, 1)
+    row.lastBorderColor = { borderR, borderG, borderB }
+    ApplyRowBorderColor(row, borderR, borderG, borderB)
+end
+
+-- Marks/unmarks a row as matching a wishlist entry: gold border + star badge,
+-- regardless of who loots it. Called from Core.lua as soon as a row is
+-- created (the itemID is known immediately from the loot link, before the
+-- item's name/quality may have resolved).
+function LootMirror.SetRowWishlist(row, isWishlisted)
+    row.isWishlisted = isWishlisted and true or false
+    row.WishlistIcon:SetShown(row.isWishlisted)
+    local lc = row.lastBorderColor or {}
+    ApplyRowBorderColor(row, lc[1], lc[2], lc[3])
 end
 
 -- Row content helpers: the single place that formats colored text onto a row.
@@ -225,6 +366,8 @@ function LootMirror.ReleaseRow(row)
     row.itemLink   = nil
     row.playerName = nil
     row.Count:SetText("")
+    row.isWishlisted = false
+    row.WishlistIcon:Hide()
     table.insert(framePool, row)
 end
 
