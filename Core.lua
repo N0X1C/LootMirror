@@ -60,8 +60,12 @@ local function GetClassColor(name)
     return c and c.r or 1, c and c.g or 1, c and c.b or 1
 end
 
--- Build locale-independent patterns from GlobalStrings
+-- Build locale-independent patterns from GlobalStrings.
+-- Guarded against a missing/renamed GlobalString: a nil value here must never
+-- throw, since a top-level error would abort the rest of this file (event
+-- registration, DisplayLoot, RunTest -- everything below this point).
 local function MakePattern(str)
+    if type(str) ~= "string" then return nil end
     return str
         :gsub("([%(%)%.%+%-%*%?%[%^%$%%])", "%%%1")
         :gsub("%%%%s", "(.+)")
@@ -69,9 +73,13 @@ local function MakePattern(str)
 end
 
 local LOOT_ITEM_PATTERN            = MakePattern(LOOT_ITEM)
-local LOOT_ITEM_MULTI_PATTERN      = LOOT_ITEM_MULTIPLE and MakePattern(LOOT_ITEM_MULTIPLE)
-local LOOT_ITEM_SELF_PATTERN       = LOOT_ITEM_SELF and MakePattern(LOOT_ITEM_SELF)
-local LOOT_ITEM_SELF_MULTI_PATTERN = LOOT_ITEM_SELF_MULTIPLE and MakePattern(LOOT_ITEM_SELF_MULTIPLE)
+local LOOT_ITEM_MULTI_PATTERN      = MakePattern(LOOT_ITEM_MULTIPLE)
+local LOOT_ITEM_SELF_PATTERN       = MakePattern(LOOT_ITEM_SELF)
+local LOOT_ITEM_SELF_MULTI_PATTERN = MakePattern(LOOT_ITEM_SELF_MULTIPLE)
+
+if not LOOT_ITEM_PATTERN then
+    print("|cffff0000LootMirror:|r Could not build the loot-message pattern (LOOT_ITEM GlobalString missing or changed). Loot detection may not work; please report this.")
+end
 
 LootMirror.SavePosition = function()
     local f = LootMirror.MainFrame
@@ -82,13 +90,6 @@ LootMirror.SavePosition = function()
     LootMirrorDB.y     = y
 end
 
-function LootMirror.ClearFeed()
-    for i = #activeRows, 1, -1 do
-        LootMirror.ReleaseRow(activeRows[i])
-        activeRows[i] = nil
-    end
-end
-
 function LootMirror.RefreshFontSize()
     local size = (LootMirrorDB and LootMirrorDB.fontSize) or 11
     for _, row in ipairs(activeRows) do
@@ -96,28 +97,66 @@ function LootMirror.RefreshFontSize()
     end
 end
 
+-- Applies bar texture + border width, and background/border tint, to a row.
+-- Covers everything under Options > Bar Style.
 function LootMirror.RefreshTexture()
-    local texture = (LootMirrorDB and LootMirrorDB.texture) or "tooltip"
+    local db = LootMirrorDB or {}
+    local texture = db.texture or "Blizzard"
+    local borderWidth = db.borderWidth or 1
+    local bg = db.bgColor or {}
+    local bc = db.borderColor or {}
     for _, row in ipairs(activeRows) do
-        LootMirror.ApplyTextureToRow(row, texture)
+        LootMirror.ApplyTextureToRow(row, texture, borderWidth)
+        LootMirror.ApplyColorsToRow(row,
+            bg.r or 0, bg.g or 0, bg.b or 0, db.bgOpacity or 0.85,
+            bc.r or 0.4, bc.g or 0.4, bc.b or 0.5)
     end
 end
 
+local ROW_HEIGHT = 52 -- must match CreateLootRow's SetSize height in LootFrame.lua
+
 local function UpdateRowPositions()
     local growUp = LootMirrorDB and LootMirrorDB.growUp
+    local scale = (LootMirrorDB and LootMirrorDB.barScale) or 1
+    local gap = (LootMirrorDB and LootMirrorDB.barSpacing) or 4
+    -- NOTE: do not multiply by `scale` here. row:SetPoint()'s offset is already
+    -- interpreted in the row's own coordinate space and gets multiplied by the
+    -- row's effective scale automatically (since row:SetScale(scale) below).
+    -- Multiplying here too made the gap grow with scale^2 instead of scale,
+    -- so "0px spacing" only touched exactly at scale=1 and drifted apart/
+    -- overlapped everywhere else.
+    local spacing = ROW_HEIGHT + gap
     for i, row in ipairs(activeRows) do
         row:ClearAllPoints()
         if growUp then
-            row:SetPoint("BOTTOM", LootMirror.MainFrame, "TOP", 0, (i - 1) * 56)
+            row:SetPoint("BOTTOM", LootMirror.MainFrame, "TOP", 0, (i - 1) * spacing)
         else
-            row:SetPoint("TOP", LootMirror.MainFrame, "BOTTOM", 0, -(i - 1) * 56)
+            row:SetPoint("TOP", LootMirror.MainFrame, "BOTTOM", 0, -(i - 1) * spacing)
         end
+        row:SetScale(scale)
     end
+end
+
+function LootMirror.RefreshLayout()
+    UpdateRowPositions()
 end
 
 local function IsFiltered(quality)
     local fq = LootMirrorDB and LootMirrorDB.filterQuality
     return fq and fq[quality or 1] == false
+end
+
+-- LootMirror is scoped to gear, not a general loot log -- equipment (weapons/
+-- armor/profession tools) is the only category it ever shows, hardcoded
+-- rather than a togglable filter, since that's the whole point of the addon.
+local EQUIPMENT_CLASS_IDS = { [2] = true, [4] = true, [19] = true } -- Weapon, Armor, Profession equipment
+
+-- Poor-quality items are always junk, never worth flagging -- hardcoded out
+-- alongside the equipment-only check rather than a Quality checkbox.
+local function ShouldFilterLoot(quality, itemClassID)
+    if quality == 0 then return true end
+    if not EQUIPMENT_CLASS_IDS[itemClassID] then return true end
+    return IsFiltered(quality)
 end
 
 -- Applies item data to a row; accepts pre-fetched data or fetches it on demand.
@@ -128,18 +167,17 @@ local function ApplyItemData(row, itemLink, count, itemName, quality, itemTextur
     end
     if not itemName then return false end
 
-    local r, g, b = GetItemQualityColor(quality or 1)
-    row.IconBorder:SetBackdropBorderColor(r, g, b, 1)
-    row.Icon:SetTexture(itemTexture)
-    row.ItemText:SetText("|c" .. string.format("ff%02x%02x%02x", math.floor(r*255), math.floor(g*255), math.floor(b*255)) .. itemName .. "|r")
-    row.Count:SetText((count and count > 1) and tostring(count) or "")
+    LootMirror.SetRowItem(row, itemName, quality, itemTexture, count)
     return quality
 end
 
-local function DisplayLoot(player, itemLink, count)
+-- Acquires a pooled row (LootMirror.AcquireRow reuses released rows instead of
+-- creating new ones -- see LootFrame.lua) and displays one loot entry on it.
+-- Wrapped by DisplayLoot below so a bad itemLink/state can never fail silently.
+local function DisplayLootImpl(player, itemLink, count, bypassFilter)
     -- Single GetItemInfo call: used for filter check and row population
-    local itemName, _, quality, _, _, _, _, _, _, itemTexture = C_Item.GetItemInfo(itemLink)
-    if quality and IsFiltered(quality) then return end
+    local itemName, _, quality, _, _, _, _, _, _, itemTexture, _, itemClassID = C_Item.GetItemInfo(itemLink)
+    if quality and not bypassFilter and ShouldFilterLoot(quality, itemClassID) then return end
 
     local itemID = tonumber(itemLink:match("|Hitem:(%d+)"))
 
@@ -147,20 +185,14 @@ local function DisplayLoot(player, itemLink, count)
     row.itemLink   = itemLink
     row.playerName = player
 
-    -- Player name in class color
     local pr, pg, pb = GetClassColor(player)
-    row.PlayerText:SetText("|c" .. string.format("ff%02x%02x%02x", math.floor(pr*255), math.floor(pg*255), math.floor(pb*255)) .. (player:match("^([^%-]+)") or player) .. "|r")
-
-    -- Placeholder until item data is loaded
-    row.Icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-    row.IconBorder:SetBackdropBorderColor(1, 1, 1, 0.4)
-    row.ItemText:SetText("|cffaaaaaaLoading...|r")
-    row.Count:SetText("")
+    LootMirror.SetRowPlayer(row, player, pr, pg, pb)
+    LootMirror.SetRowLoading(row) -- placeholder until item data resolves below/async
 
     -- Pass pre-fetched data; only queue if still not cached
     if not ApplyItemData(row, itemLink, count, itemName, quality, itemTexture) and itemID then
         if not pendingItems[itemID] then pendingItems[itemID] = {} end
-        table.insert(pendingItems[itemID], { row = row, count = count, itemLink = itemLink })
+        table.insert(pendingItems[itemID], { row = row, count = count, itemLink = itemLink, bypassFilter = bypassFilter })
     end
 
     table.insert(activeRows, 1, row)
@@ -197,6 +229,17 @@ local function DisplayLoot(player, itemLink, count)
     end)
 end
 
+-- Public entry point: never lets an error pass silently. Without this, a
+-- runtime error inside DisplayLootImpl (bad link, nil field, etc.) would just
+-- vanish -- the client only prints Lua errors to chat if the player has
+-- "Show Lua Errors" enabled, which is off by default.
+local function DisplayLoot(player, itemLink, count, bypassFilter)
+    local ok, err = pcall(DisplayLootImpl, player, itemLink, count, bypassFilter)
+    if not ok then
+        print("|cffff0000LootMirror error:|r " .. tostring(err))
+    end
+end
+
 local core = CreateFrame("Frame")
 core:RegisterEvent("ADDON_LOADED")
 core:RegisterEvent("CHAT_MSG_LOOT")
@@ -216,18 +259,39 @@ core:SetScript("OnEvent", function(self, event, ...)
             LootMirrorDB.growUp   = LootMirrorDB.growUp   or false
             LootMirrorDB.duration = LootMirrorDB.duration or 15
             LootMirrorDB.fontSize = LootMirrorDB.fontSize or 11
+            LootMirrorDB.barScale = LootMirrorDB.barScale or 1
             LootMirrorDB.texture  = LootMirrorDB.texture  or "Blizzard"
+            LootMirrorDB.barSpacing  = LootMirrorDB.barSpacing  or 4
+            LootMirrorDB.borderWidth = LootMirrorDB.borderWidth or 1
+            LootMirrorDB.bgOpacity   = LootMirrorDB.bgOpacity   or 0.85
+            LootMirrorDB.bgColor     = LootMirrorDB.bgColor     or { r = 0,   g = 0,   b = 0 }
+            LootMirrorDB.borderColor = LootMirrorDB.borderColor or { r = 0.4, g = 0.4, b = 0.5 }
             LootMirrorDB.optionsPoint = LootMirrorDB.optionsPoint or "CENTER"
             LootMirrorDB.optionsRelativePoint = LootMirrorDB.optionsRelativePoint or "CENTER"
             LootMirrorDB.optionsX = LootMirrorDB.optionsX or 0
             LootMirrorDB.optionsY = LootMirrorDB.optionsY or 0
+            LootMirrorDB.optionsScale = LootMirrorDB.optionsScale or 1
+            LootMirrorDB.optionsOpacity = LootMirrorDB.optionsOpacity or 0.95
+            -- Poor (0) isn't included -- it's hardcoded out in ShouldFilterLoot,
+            -- not a togglable quality (LootMirror only ever shows equipment).
             if not LootMirrorDB.filterQuality then
-                LootMirrorDB.filterQuality = { [0]=true,[1]=true,[2]=true,[3]=true,[4]=true,[5]=true }
+                LootMirrorDB.filterQuality = { [1]=true,[2]=true,[3]=true,[4]=true,[5]=true }
+            else
+                -- Safety net: if every quality ended up disabled (e.g. leftover
+                -- state from before the Options window had a way to see/edit
+                -- this), loot would silently never show with no indication why.
+                local anyEnabled = false
+                for q = 1, 5 do
+                    if LootMirrorDB.filterQuality[q] ~= false then anyEnabled = true break end
+                end
+                if not anyEnabled then
+                    print("|cffff9900LootMirror:|r All item qualities are currently disabled under Displayed Qualities (Options). Loot bars won't show until you enable at least one.")
+                end
             end
             LootMirror.MainFrame:ClearAllPoints()
             LootMirror.MainFrame:SetPoint(LootMirrorDB.point, UIParent, LootMirrorDB.point, LootMirrorDB.x, LootMirrorDB.y)
             RefreshClassCache()
-            print("|cff00ccff LootMirror:|r Loaded. Type |cffff9900/lm|r for options.")
+            print("|cff00ccffLootMirror:|r Loaded. Type |cffff9900/lm|r for options.")
         end
 
     elseif event == "GROUP_ROSTER_UPDATE" then
@@ -261,9 +325,11 @@ core:SetScript("OnEvent", function(self, event, ...)
             end
         end
         -- Group/raid loot (single)
-        local p, link = strmatch(msg, LOOT_ITEM_PATTERN)
-        if p and link then
-            DisplayLoot(p, link, nil)
+        if LOOT_ITEM_PATTERN then
+            local p, link = strmatch(msg, LOOT_ITEM_PATTERN)
+            if p and link then
+                DisplayLoot(p, link, nil)
+            end
         end
 
     elseif event == "GET_ITEM_INFO_RECEIVED" then
@@ -273,8 +339,9 @@ core:SetScript("OnEvent", function(self, event, ...)
         if not entries then return end
         for _, entry in ipairs(entries) do
             local quality = ApplyItemData(entry.row, entry.itemLink, entry.count)
-            if quality and IsFiltered(quality) then
-                -- Quality is filtered out: remove the row
+            local itemClassID = quality and select(12, C_Item.GetItemInfo(entry.itemLink))
+            if quality and not entry.bypassFilter and ShouldFilterLoot(quality, itemClassID) then
+                -- Filtered out (junk, non-equipment, or a disabled quality): remove the row
                 for i, r in ipairs(activeRows) do
                     if r == entry.row then
                         table.remove(activeRows, i)
@@ -289,43 +356,42 @@ core:SetScript("OnEvent", function(self, event, ...)
     end
 end)
 
-SLASH_LOOTMIRROR1 = "/lm"
-SlashCmdList["LOOTMIRROR"] = function(msg)
-    if msg == "move" then
-        if LootMirror.MainFrame:IsShown() then
-            LootMirror.MainFrame:Hide()
-        else
-            LootMirror.MainFrame:Show()
-        end
+local function RunLootTest()
+    local pool = {
+        { p = "Sylvanas",  class = "HUNTER",      i = "|cffa335ee|Hitem:18803::::::::70:::::|h[Ashbringer]|h|r" },
+        { p = "Arthas",    class = "DEATHKNIGHT",  i = "|cffff8000|Hitem:20928::::::::70:::::|h[Death's Sting]|h|r" },
+        { p = "Anduin",    class = "PRIEST",       i = "|cffa335ee|Hitem:9449::::::::70:::::|h[Cord of the Earth]|h|r", c = 3 },
+        { p = "Thrall",    class = "SHAMAN",       i = "|cff0070dd|Hitem:17182::::::::70:::::|h[Sulfuras]|h|r" },
+        { p = "Jaina",     class = "MAGE",         i = "|cffa335ee|Hitem:19019::::::::70:::::|h[Atiesh]|h|r" },
+        { p = "Varian",    class = "WARRIOR",      i = "|cff0070dd|Hitem:11815::::::::70:::::|h[Frostblade]|h|r" },
+        { p = "Malfurion", class = "DRUID",        i = "|cffa335ee|Hitem:21178::::::::70:::::|h[Staff of Nature]|h|r" },
+        { p = "Illidan",   class = "DEMONHUNTER",  i = "|cffff8000|Hitem:32837::::::::70:::::|h[Warglaive]|h|r" },
+        { p = "Garrosh",   class = "WARRIOR",      i = "|cffa335ee|Hitem:12797::::::::70:::::|h[Gorehowl]|h|r" },
+        { p = "Tyrande",   class = "PRIEST",       i = "|cff1eff00|Hitem:18814::::::::70:::::|h[Benediction]|h|r" },
+    }
 
-    elseif msg == "test" then
-        local pool = {
-            { p = "Sylvanas",  class = "HUNTER",      i = "|cffa335ee|Hitem:18803::::::::70:::::|h[Ashbringer]|h|r" },
-            { p = "Arthas",    class = "DEATHKNIGHT",  i = "|cffff8000|Hitem:20928::::::::70:::::|h[Death's Sting]|h|r" },
-            { p = "Anduin",    class = "PRIEST",       i = "|cffa335ee|Hitem:9449::::::::70:::::|h[Cord of the Earth]|h|r", c = 3 },
-            { p = "Thrall",    class = "SHAMAN",       i = "|cff0070dd|Hitem:17182::::::::70:::::|h[Sulfuras]|h|r" },
-            { p = "Jaina",     class = "MAGE",         i = "|cffa335ee|Hitem:19019::::::::70:::::|h[Atiesh]|h|r" },
-            { p = "Varian",    class = "WARRIOR",      i = "|cff0070dd|Hitem:11815::::::::70:::::|h[Frostblade]|h|r" },
-            { p = "Malfurion", class = "DRUID",        i = "|cffa335ee|Hitem:21178::::::::70:::::|h[Staff of Nature]|h|r" },
-            { p = "Illidan",   class = "DEMONHUNTER",  i = "|cffff8000|Hitem:32837::::::::70:::::|h[Warglaive]|h|r" },
-            { p = "Garrosh",   class = "WARRIOR",      i = "|cffa335ee|Hitem:12797::::::::70:::::|h[Gorehowl]|h|r" },
-            { p = "Tyrande",   class = "PRIEST",       i = "|cff1eff00|Hitem:18814::::::::70:::::|h[Benediction]|h|r" },
-        }
-        local count = LootMirrorDB and LootMirrorDB.maxRows or 5
-        for _, v in ipairs(pool) do
-            if RAID_CLASS_COLORS[v.class] then
-                classCache[v.p] = RAID_CLASS_COLORS[v.class]
-            end
-        end
-        for k = 1, count do
-            local v = pool[k]
-            C_Timer.After(k * 0.5, function() DisplayLoot(v.p, v.i, v.c) end)
-        end
+    local count = LootMirrorDB and LootMirrorDB.maxRows or 5
+    if count > #pool then count = #pool end
+    count = math.floor(count)
 
-    else
-        -- No or unknown argument: open options
-        if LootMirror.Options.Toggle then
-            LootMirror.Options.Toggle()
+    for _, v in ipairs(pool) do
+        if RAID_CLASS_COLORS[v.class] then
+            classCache[v.p] = RAID_CLASS_COLORS[v.class]
+        end
+    end
+
+    for k = 1, count do
+        local v = pool[k]
+        if v then
+            C_Timer.After(k * 0.3, function()
+                -- Bypasses quality/equipment filtering: Test is meant to preview
+                -- bar layout/appearance, not exercise filter settings, so it
+                -- should reliably fill Max Loot Bars regardless of what's
+                -- currently checked under Displayed Qualities.
+                DisplayLoot(v.p, v.i, v.c, true)
+            end)
         end
     end
 end
+
+LootMirror.RunTest = RunLootTest

@@ -1,8 +1,8 @@
-## Interface: 120001
+## Interface: 120100
 ## Title: LootMirror
 ## Notes: Lightweight party/raid loot feed styled to match the native WoW UI.
 ## Author: N0X1C
-## Version: 1.2
+## Version: 2.0
 ## SavedVariables: LootMirrorDB
 
 LootFrame.lua
