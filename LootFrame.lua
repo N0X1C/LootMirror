@@ -14,7 +14,7 @@ local WISHLIST_BORDER = { 1, 0.82, 0.1 }
 -- Anchor bar palette -- kept in sync with the dark theme in Options.lua
 -- (accent = logo blue). Border matches the main window's own outer edge:
 -- solid black, full opacity.
-local ANCHOR_BG      = { 0.06,  0.06,  0.09,  0.95 }
+local ANCHOR_BG      = { 0, 0, 0, 0.95 }
 local ANCHOR_BORDER  = { 0, 0, 0, 1 }
 local ANCHOR_ACCENT  = { 0.18,  0.72,  0.92 }
 local ANCHOR_SUBTEXT = { 0.65,  0.65,  0.72 }

@@ -14,7 +14,7 @@
 -- earlier purple/cyan scheme. Border alpha kept low so the thin (1px) edges
 -- read as subtle hairlines instead of bold outlines.
 local C = {
-    bg          = { 0.045, 0.045, 0.065, 0.95 },
+    bg          = { 0, 0, 0, 0.95 },
     card        = { 0.10,  0.10,  0.15,  0.55 },
     border      = { 0.18,  0.40,  0.48,  0.55 }, -- internal hairlines (dividers, input/swatch edges)
     windowBorder = { 0, 0, 0, 1 },                -- the window's own outer edge -- solid black
@@ -357,7 +357,7 @@ local function CloseAllMenus(except)
     end
 end
 
-local function CreateModernDropdown(labelText, options)
+local function CreateModernDropdown(labelText, options, onChange)
     currentY = currentY + 10
     local label = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label:SetPoint("TOPLEFT", content, "TOPLEFT", PADDING, -currentY)
@@ -428,6 +428,7 @@ local function CreateModernDropdown(labelText, options)
         optBtn:SetScript("OnClick", function()
             SetValue(entry.value)
             menu:Hide()
+            if onChange then onChange(entry.value) end
         end)
     end
 
@@ -469,7 +470,7 @@ local QUALITY_LABELS = {
     [5] = _G.ITEM_QUALITY5_DESC or "Legendary",
 }
 
-local function CreateQualityCheckbox(qualityIndex, x, y)
+local function CreateQualityCheckbox(qualityIndex, x, y, onChange)
     local r, g, b = GetItemQualityColor(qualityIndex)
 
     local box = CreateFrame("Button", nil, content, "BackdropTemplate")
@@ -495,6 +496,7 @@ local function CreateQualityCheckbox(qualityIndex, x, y)
     box:SetScript("OnClick", function()
         checked = not checked
         Refresh()
+        if onChange then onChange(checked) end
     end)
     box:SetScript("OnEnter", function(self) self:SetBackdropBorderColor(1, 1, 1, 1) end)
     box:SetScript("OnLeave", function(self) self:SetBackdropBorderColor(r, g, b, 1) end)
@@ -615,7 +617,15 @@ local svMarkerV = svSquare:CreateTexture(nil, "OVERLAY")
 svMarkerV:SetSize(1, 8)
 svMarkerV:SetColorTexture(1, 1, 1, 1)
 
+-- RefreshColorPopup (below) calls this on every cursor tick while EITHER the
+-- SV square OR the hue bar is being dragged, but the grid's cell colors only
+-- depend on hue, not on the S/V marker position -- so dragging inside the SV
+-- square was repainting all 980 cells every frame for no visual change.
+-- lastPaintedHue turns that into a no-op whenever hue hasn't actually moved.
+local lastPaintedHue
 local function RepaintSVGrid(hue)
+    if lastPaintedHue == hue then return end
+    lastPaintedHue = hue
     for row = 0, SV_ROWS - 1 do
         local v = 1 - (row / (SV_ROWS - 1))
         for col = 0, SV_COLS - 1 do
@@ -826,7 +836,7 @@ end
 -- Color swatch row: label left, clickable color box right. Opens the custom
 -- color picker popup above, anchored under the swatch.
 --------------------------------------------------------------------------
-local function CreateColorSwatchRow(labelText, defaultR, defaultG, defaultB)
+local function CreateColorSwatchRow(labelText, defaultR, defaultG, defaultB, onChange)
     currentY = currentY + 10
     local label = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label:SetPoint("TOPLEFT", content, "TOPLEFT", PADDING, -currentY)
@@ -849,6 +859,7 @@ local function CreateColorSwatchRow(labelText, defaultR, defaultG, defaultB)
         OpenColorPopup(swatch, labelText, state.r, state.g, state.b, function(r, g, b)
             state.r, state.g, state.b = r, g, b
             Refresh()
+            if onChange then onChange(r, g, b) end
         end)
     end)
     swatch:SetScript("OnEnter", function(self) self:SetBackdropBorderColor(unpack(C.accent)) end)
@@ -864,31 +875,65 @@ local function CreateColorSwatchRow(labelText, defaultR, defaultG, defaultB)
     }
 end
 
+-- Forward-declared: the controls below wire their onChange straight to this
+-- (live preview, see "Settings application" further down) so changes are
+-- visible immediately on whatever rows are currently shown (Preview toggle
+-- or real loot), without waiting for Save/Test. The real definition comes
+-- later in the file, after every control exists -- forward-declaring the
+-- local here (rather than `local function ApplySettings()` down there) is
+-- what lets these earlier closures see it as an upvalue instead of nil.
+local ApplySettings
+
+-- ApplySettings() reads ALL controls' current values every time it runs, not
+-- just the one that changed. optFrame's OnShow restores them from the DB one
+-- SetValue()/SetColor()/SetChecked() call at a time -- without this guard,
+-- each slider's live-apply hook (below) would fire mid-restoration and write
+-- the *other*, not-yet-restored controls' stale values back over the DB,
+-- corrupting borderColor/bgColor/filterQuality in particular (they're
+-- restored last, so a slider hook firing earlier in the sequence would
+-- overwrite them with whatever the controls held before OnShow ran) --
+-- this is what made settings appear to reset every time Options was opened
+-- after a /reload. Every live-apply call site below goes through LiveApply()
+-- instead of calling ApplySettings() directly; OnShow flips this true for
+-- the duration of its restoration block.
+local suppressLiveApply = false
+local function LiveApply()
+    if not suppressLiveApply then ApplySettings() end
+end
+
 --------------------------------------------------------------------------
 -- Content: Display section
 --------------------------------------------------------------------------
 local displaySectionStart = currentY
 AddSectionHeader("Display")
 
+-- Every slider below applies live (calls ApplySettings on every value tick,
+-- same pattern Panel Opacity already used above) instead of only taking
+-- effect after Save/Test -- see the Preview toggle in the footer section.
 local maxSlider = CreateModernSlider("Max Loot Bars", 1, 10, 1, 5, function(v)
     return tostring(math.floor(v + 0.5))
 end)
+maxSlider:HookScript("OnValueChanged", LiveApply)
 
 local durSlider = CreateModernSlider("Display Duration", 5, 60, 5, 15, function(v)
     return tostring(math.floor(v / 5 + 0.5) * 5) .. "s"
 end)
+durSlider:HookScript("OnValueChanged", LiveApply)
 
 local fontSlider = CreateModernSlider("Font Size", 8, 18, 1, 11, function(v)
     return tostring(math.floor(v + 0.5))
 end)
+fontSlider:HookScript("OnValueChanged", LiveApply)
 
 local barScaleSlider = CreateModernSlider("Bar Scale", 0.8, 1.6, 0.05, 1, function(v)
     return string.format("%.2fx", v)
 end)
+barScaleSlider:HookScript("OnValueChanged", LiveApply)
 
 local spacingSlider = CreateModernSlider("Bar Spacing", 0, 20, 1, 4, function(v)
     return tostring(math.floor(v + 0.5)) .. "px"
 end)
+spacingSlider:HookScript("OnValueChanged", LiveApply)
 
 AddCardPanel(displaySectionStart - 4, currentY - displaySectionStart + 4)
 
@@ -902,12 +947,12 @@ AddSectionHeader("Appearance")
 local textureDropdown = CreateModernDropdown("Bar Texture", {
     { text = "Blizzard", value = "Blizzard" },
     { text = "Flat",     value = "Flat" },
-})
+}, LiveApply)
 
 local growDropdown = CreateModernDropdown("Grow Direction", {
     { text = "Grow Down", value = false },
     { text = "Grow Up",   value = true },
-})
+}, LiveApply)
 
 AddCardPanel(appearanceSectionStart - 4, currentY - appearanceSectionStart + 4)
 
@@ -921,13 +966,15 @@ AddSectionHeader("Bar Style")
 local borderWidthSlider = CreateModernSlider("Border Width", 1, 6, 1, 1, function(v)
     return tostring(math.floor(v + 0.5)) .. "px"
 end)
+borderWidthSlider:HookScript("OnValueChanged", LiveApply)
 
-local borderColorSwatch = CreateColorSwatchRow("Border Color", 0.4, 0.4, 0.5)
-local bgColorSwatch = CreateColorSwatchRow("Background Color", 0, 0, 0)
+local borderColorSwatch = CreateColorSwatchRow("Border Color", 0.4, 0.4, 0.5, LiveApply)
+local bgColorSwatch = CreateColorSwatchRow("Background Color", 0, 0, 0, LiveApply)
 
 local bgOpacitySlider = CreateModernSlider("Background Opacity", 0, 100, 5, 85, function(v)
     return tostring(math.floor(v + 0.5)) .. "%"
 end)
+bgOpacitySlider:HookScript("OnValueChanged", LiveApply)
 
 AddCardPanel(barStyleSectionStart - 4, currentY - barStyleSectionStart + 4)
 
@@ -950,7 +997,7 @@ for pos, q in ipairs(QUALITY_ORDER) do
     local row = math.floor((pos - 1) / 2)
     local x = PADDING + col * qualityColWidth
     local y = currentY + row * 24
-    qualityCheckboxes[q] = CreateQualityCheckbox(q, x, y)
+    qualityCheckboxes[q] = CreateQualityCheckbox(q, x, y, LiveApply)
 end
 currentY = currentY + 3 * 24 + 6
 
@@ -994,7 +1041,7 @@ ShowTab("options")
 --------------------------------------------------------------------------
 -- Settings application
 --------------------------------------------------------------------------
-local function ApplySettings()
+function ApplySettings()
     LootMirrorDB = LootMirrorDB or {}
     LootMirrorDB.maxRows    = math.floor(maxSlider:GetValue() + 0.5)
     LootMirrorDB.duration   = math.floor(durSlider:GetValue() / 5 + 0.5) * 5
@@ -1068,6 +1115,7 @@ local function CreateModernButton(width, text, isPrimary)
             label:SetTextColor(unpack(C.text))
         end
     end)
+    btn.label = label
     return btn
 end
 
@@ -1088,12 +1136,34 @@ moveBtn:SetScript("OnClick", function()
     end
 end)
 
-local testBtn = CreateModernButton(halfWidth, "Test", false)
-testBtn:SetPoint("BOTTOMLEFT", moveBtn, "BOTTOMRIGHT", 10, 0)
-testBtn:SetScript("OnClick", function()
+-- Preview toggle: replaces the old one-shot Test button. Turning it on spawns
+-- a set of demo rows that -- unlike /lm test's rows -- don't auto-expire, so
+-- every control above applying live (see their onChange hooks) updates these
+-- same rows immediately as you drag/click, instead of needing Test pressed
+-- again after every change. Toggling off (or closing the window, see OnHide
+-- below) releases them.
+local previewActive = false
+local previewBtn = CreateModernButton(halfWidth, "Preview", false)
+previewBtn:SetPoint("BOTTOMLEFT", moveBtn, "BOTTOMRIGHT", 10, 0)
+previewBtn:SetScript("OnClick", function()
     ApplySettings()
-    if LootMirror and LootMirror.RunTest then
-        LootMirror.RunTest()
+    previewActive = not previewActive
+    if previewActive then
+        if LootMirror and LootMirror.StartPreview then LootMirror.StartPreview() end
+        previewBtn.label:SetText("Stop Preview")
+    else
+        if LootMirror and LootMirror.StopPreview then LootMirror.StopPreview() end
+        previewBtn.label:SetText("Preview")
+    end
+end)
+
+-- Closing the window (x, Escape, or Save) always stops an active preview --
+-- otherwise the demo rows would linger on screen after Options closes.
+optFrame:HookScript("OnHide", function()
+    if previewActive then
+        previewActive = false
+        if LootMirror and LootMirror.StopPreview then LootMirror.StopPreview() end
+        previewBtn.label:SetText("Preview")
     end
 end)
 
@@ -1112,6 +1182,11 @@ local function ApplyFramePosition()
 end
 
 optFrame:SetScript("OnShow", function()
+    -- See suppressLiveApply above: every SetValue/SetColor/SetChecked call
+    -- below must not trigger a live-apply write while the controls are only
+    -- partway restored, or it corrupts LootMirrorDB with a mix of old and
+    -- new values.
+    suppressLiveApply = true
     local db = LootMirrorDB or {}
     ApplyPanelScale(db.optionsScale or 1)
     panelScaleSlider:SetValue(db.optionsScale or 1)
@@ -1138,6 +1213,7 @@ optFrame:SetScript("OnShow", function()
     end
 
     SetScrollPct(0)
+    suppressLiveApply = false
 end)
 
 ApplyFramePosition()

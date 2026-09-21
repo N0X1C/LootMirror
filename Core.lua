@@ -1,6 +1,7 @@
 local activeRows   = {}
 local pendingItems = {} -- itemID -> { {row, count, itemLink}, ... }
 local classCache   = {} -- player name -> RAID_CLASS_COLORS entry
+local previewRows  = {} -- rows spawned by the Options window's Preview toggle (see StartPreview/StopPreview)
 
 -- Safely extract a string value, skipping tainted values via issecretvalue()
 local hasIsSecretValue = type(issecretvalue) == "function"
@@ -181,7 +182,11 @@ end
 -- (real-match) demo rows -- otherwise a player whose character name happens
 -- to match one of the test's hardcoded NPC names (Thrall, Jaina, ...) could
 -- have a real wishlist entry deleted just by clicking Test.
-local function DisplayLootImpl(player, itemLink, count, bypassFilter, forceWishlist, isTest)
+-- noExpire skips the auto-release C_Timer below entirely -- used only by the
+-- Options window's Preview toggle (see StartPreview), whose rows are meant to
+-- stay up indefinitely while Options is open, not disappear after `duration`.
+-- StopPreview releases them explicitly instead.
+local function DisplayLootImpl(player, itemLink, count, bypassFilter, forceWishlist, isTest, noExpire)
     local itemID = tonumber(itemLink:match("|Hitem:(%d+)"))
     local isRealWishlistMatch = itemID ~= nil and LootMirror.Wishlist and LootMirror.Wishlist.IsWishlisted(itemID)
 
@@ -225,11 +230,23 @@ local function DisplayLootImpl(player, itemLink, count, bypassFilter, forceWishl
     table.insert(activeRows, 1, row)
     local maxRows = LootMirrorDB and LootMirrorDB.maxRows or 5
     if #activeRows > maxRows then
-        LootMirror.ReleaseRow(table.remove(activeRows))
+        local removed = table.remove(activeRows)
+        -- If a real loot event trims a preview row out of activeRows while
+        -- Preview is active, drop it from previewRows too -- otherwise
+        -- StopPreview would try to release this same row a second time.
+        for i, r in ipairs(previewRows) do
+            if r == removed then table.remove(previewRows, i) break end
+        end
+        LootMirror.ReleaseRow(removed)
     end
 
     UpdateRowPositions()
     row:Show()
+
+    if noExpire then
+        table.insert(previewRows, row)
+        return
+    end
 
     C_Timer.After(LootMirrorDB and LootMirrorDB.duration or 15, function()
         for i, activeRow in ipairs(activeRows) do
@@ -260,8 +277,8 @@ end
 -- runtime error inside DisplayLootImpl (bad link, nil field, etc.) would just
 -- vanish -- the client only prints Lua errors to chat if the player has
 -- "Show Lua Errors" enabled, which is off by default.
-local function DisplayLoot(player, itemLink, count, bypassFilter, forceWishlist, isTest)
-    local ok, err = pcall(DisplayLootImpl, player, itemLink, count, bypassFilter, forceWishlist, isTest)
+local function DisplayLoot(player, itemLink, count, bypassFilter, forceWishlist, isTest, noExpire)
+    local ok, err = pcall(DisplayLootImpl, player, itemLink, count, bypassFilter, forceWishlist, isTest, noExpire)
     if not ok then
         print("|cffff0000LootMirror error:|r " .. tostring(err))
     end
@@ -383,38 +400,61 @@ core:SetScript("OnEvent", function(self, event, ...)
     end
 end)
 
-local function RunLootTest()
-    -- The first entry always previews the wishlist highlight (gold border +
-    -- star badge), regardless of what's actually on the wishlist -- so the
-    -- look can be checked without needing a matching item saved first. Every
-    -- other entry uses the real wishlist match, so actually wishlisting one
-    -- of these items (e.g. Sulfuras) and re-running the test verifies the
-    -- real drop-matching path too.
-    local pool = {
-        { p = "Sylvanas",  class = "HUNTER",      i = "|cffa335ee|Hitem:18803::::::::70:::::|h[Ashbringer]|h|r", wishlist = true },
-        { p = "Arthas",    class = "DEATHKNIGHT",  i = "|cffff8000|Hitem:20928::::::::70:::::|h[Death's Sting]|h|r" },
-        { p = "Anduin",    class = "PRIEST",       i = "|cffa335ee|Hitem:9449::::::::70:::::|h[Cord of the Earth]|h|r", c = 3 },
-        { p = "Thrall",    class = "SHAMAN",       i = "|cff0070dd|Hitem:17182::::::::70:::::|h[Sulfuras]|h|r" },
-        { p = "Jaina",     class = "MAGE",         i = "|cffa335ee|Hitem:19019::::::::70:::::|h[Atiesh]|h|r" },
-        { p = "Varian",    class = "WARRIOR",      i = "|cff0070dd|Hitem:11815::::::::70:::::|h[Frostblade]|h|r" },
-        { p = "Malfurion", class = "DRUID",        i = "|cffa335ee|Hitem:21178::::::::70:::::|h[Staff of Nature]|h|r" },
-        { p = "Illidan",   class = "DEMONHUNTER",  i = "|cffff8000|Hitem:32837::::::::70:::::|h[Warglaive]|h|r" },
-        { p = "Garrosh",   class = "WARRIOR",      i = "|cffa335ee|Hitem:12797::::::::70:::::|h[Gorehowl]|h|r" },
-        { p = "Tyrande",   class = "PRIEST",       i = "|cff1eff00|Hitem:18814::::::::70:::::|h[Benediction]|h|r" },
-    }
+-- Shared by /lm test (RunLootTest, below) and the Options window's Preview
+-- toggle (StartPreview, below). The first entry always previews the wishlist
+-- highlight (gold border + star badge), regardless of what's actually on the
+-- wishlist -- so the look can be checked without needing a matching item
+-- saved first. Every other entry uses the real wishlist match, so actually
+-- wishlisting one of these items (e.g. Sulfuras) and re-running verifies the
+-- real drop-matching path too.
+local DEMO_POOL = {
+    { p = "Sylvanas",  class = "HUNTER",      i = "|cffa335ee|Hitem:18803::::::::70:::::|h[Ashbringer]|h|r", wishlist = true },
+    { p = "Arthas",    class = "DEATHKNIGHT",  i = "|cffff8000|Hitem:20928::::::::70:::::|h[Death's Sting]|h|r" },
+    { p = "Anduin",    class = "PRIEST",       i = "|cffa335ee|Hitem:9449::::::::70:::::|h[Cord of the Earth]|h|r", c = 3 },
+    { p = "Thrall",    class = "SHAMAN",       i = "|cff0070dd|Hitem:17182::::::::70:::::|h[Sulfuras]|h|r" },
+    { p = "Jaina",     class = "MAGE",         i = "|cffa335ee|Hitem:19019::::::::70:::::|h[Atiesh]|h|r" },
+    { p = "Varian",    class = "WARRIOR",      i = "|cff0070dd|Hitem:11815::::::::70:::::|h[Frostblade]|h|r" },
+    { p = "Malfurion", class = "DRUID",        i = "|cffa335ee|Hitem:21178::::::::70:::::|h[Staff of Nature]|h|r" },
+    { p = "Illidan",   class = "DEMONHUNTER",  i = "|cffff8000|Hitem:32837::::::::70:::::|h[Warglaive]|h|r" },
+    { p = "Garrosh",   class = "WARRIOR",      i = "|cffa335ee|Hitem:12797::::::::70:::::|h[Gorehowl]|h|r" },
+    { p = "Tyrande",   class = "PRIEST",       i = "|cff1eff00|Hitem:18814::::::::70:::::|h[Benediction]|h|r" },
+}
 
-    local count = LootMirrorDB and LootMirrorDB.maxRows or 5
-    if count > #pool then count = #pool end
-    count = math.floor(count)
-
-    for _, v in ipairs(pool) do
+-- Demo rows borrow classCache to show real class colors for their hardcoded
+-- NPC names even though those "players" aren't actually in your group. This
+-- must never leak into a real player's color: if your group genuinely
+-- contains someone named e.g. "Thrall", seeding classCache["Thrall"] with the
+-- demo Shaman color here would silently override their real class color for
+-- every future loot row (GetClassColor only does a live lookup on a cache
+-- miss) until the next GROUP_ROSTER_UPDATE happens to refresh it. So every
+-- seed is paired with a restore back to whatever classCache held before
+-- (nil if nothing did), once the demo rows that needed it are done reading it.
+local function SeedDemoClassCache()
+    local saved = {}
+    for _, v in ipairs(DEMO_POOL) do
         if RAID_CLASS_COLORS[v.class] then
+            saved[v.p] = classCache[v.p]
             classCache[v.p] = RAID_CLASS_COLORS[v.class]
         end
     end
+    return saved
+end
+
+local function RestoreDemoClassCache(saved)
+    for _, v in ipairs(DEMO_POOL) do
+        classCache[v.p] = saved[v.p]
+    end
+end
+
+local function RunLootTest()
+    local count = LootMirrorDB and LootMirrorDB.maxRows or 5
+    if count > #DEMO_POOL then count = #DEMO_POOL end
+    count = math.floor(count)
+
+    local saved = SeedDemoClassCache()
 
     for k = 1, count do
-        local v = pool[k]
+        local v = DEMO_POOL[k]
         if v then
             C_Timer.After(k * 0.3, function()
                 -- Bypasses quality/equipment filtering: Test is meant to preview
@@ -425,6 +465,66 @@ local function RunLootTest()
             end)
         end
     end
+
+    -- Restored once the last staggered row has actually read classCache
+    -- (rows re-use pooled DisplayLoot, which reads it synchronously the
+    -- moment each row is created), not immediately after this loop returns.
+    C_Timer.After(count * 0.3 + 0.1, function()
+        RestoreDemoClassCache(saved)
+    end)
 end
 
 LootMirror.RunTest = RunLootTest
+
+-- Persistent demo rows for the Options window's Preview toggle. Unlike
+-- RunLootTest/"/lm test" above (which spawns rows that auto-expire after
+-- `duration`), these stay up until StopPreview is called -- Options.lua
+-- calls it when the Preview button is toggled off or the window closes.
+-- That way tweaking sliders/colors/dropdowns while Options is open updates
+-- the same visible rows immediately, instead of needing to keep re-clicking
+-- a one-shot test after every change.
+local previewActive = false
+
+local function StartPreview()
+    if previewActive then return end
+    previewActive = true
+
+    local count = LootMirrorDB and LootMirrorDB.maxRows or 5
+    if count > #DEMO_POOL then count = #DEMO_POOL end
+    count = math.floor(count)
+
+    local saved = SeedDemoClassCache()
+
+    for k = 1, count do
+        local v = DEMO_POOL[k]
+        if v then
+            DisplayLoot(v.p, v.i, v.c, true, v.wishlist, true, true)
+        end
+    end
+
+    -- Unlike RunLootTest, every row here is created synchronously in the loop
+    -- above (no staggered C_Timer), so classCache has already been read by
+    -- the time the loop returns -- safe to restore immediately.
+    RestoreDemoClassCache(saved)
+end
+
+local function StopPreview()
+    if not previewActive then return end
+    previewActive = false
+
+    for _, row in ipairs(previewRows) do
+        for i, r in ipairs(activeRows) do
+            if r == row then
+                table.remove(activeRows, i)
+                break
+            end
+        end
+        LootMirror.ReleaseRow(row)
+    end
+    for i = #previewRows, 1, -1 do previewRows[i] = nil end
+
+    UpdateRowPositions()
+end
+
+LootMirror.StartPreview = StartPreview
+LootMirror.StopPreview = StopPreview

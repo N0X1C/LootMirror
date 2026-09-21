@@ -14,6 +14,8 @@ LootMirror shows what you and your group members loot in a clean, unobtrusive fe
 - **Class colors** — player names are displayed in their class color, resolved live from the group roster
 - **Item tooltips at the cursor** — hover a row for the full item tooltip; hold **Shift** to also show the equipped-item comparison (independent of the client's "always compare items" setting)
 - **Item quality filter** — show or hide loot by quality (Common through Legendary), with an in-game toggle for each
+- **Wishlist** — track specific items (any equipment, or non-equipment like mounts/appearances) and get a gold-highlighted loot bar the moment anyone in your group loots one, regardless of your quality/equipment filters. Add items by pasting a link or item ID in the Wishlist tab, or **Shift + Right-click** an item while browsing loot in the Adventure Guide. An item is automatically removed from your wishlist once you loot (or are traded) a copy
+- **Live settings preview** — the Options window's **Preview** button shows a set of demo loot bars that update instantly as you adjust any slider, color, or dropdown, so you can dial in the look without repeatedly re-triggering a test
 - **Configurable row count** — 1 to 10 bars visible at once
 - **Configurable duration** — bars stay visible for 5 to 60 seconds
 - **Configurable font size** — adjust the text size of loot bars (8–18)
@@ -38,7 +40,9 @@ LootMirror shows what you and your group members loot in a clean, unobtrusive fe
 
 ## Options
 
-Open via **Game Menu → Options → Addons → LootMirror** or with `/lm`. The window is scrollable (mouse wheel or the scrollbar on the right); the **Panel Scale** and **Panel Opacity** sliders at the top adjust the window itself (size and background transparency), separate from the loot bar styling below.
+Open via **Game Menu → Options → Addons → LootMirror** or with `/lm`. The window has two tabs, **Options** and **Wishlist** (see below), and is scrollable (mouse wheel or the scrollbar on the right); the **Panel Scale** and **Panel Opacity** sliders at the top adjust the window itself (size and background transparency), separate from the loot bar styling below.
+
+At the bottom: **Move Anchor** reveals the draggable anchor bar, **Preview** toggles a set of demo loot bars that update live as you change any setting, and **Save** applies and closes the window (every other change already applies live — Save is mainly there to close up).
 
 ### Display
 | Option | Description |
@@ -70,6 +74,20 @@ Settings are saved per account in `LootMirrorDB`.
 
 ---
 
+## Wishlist
+
+Track specific items you're after — a wishlisted item's loot bar always shows (gold border + star badge), for **any** group member's drop, even if it's a non-equipment item or a quality you've filtered out.
+
+**Adding items:**
+- In the **Wishlist** tab, paste an item link (Ctrl+V) or type a numeric item ID into the input box and click **Add**
+- While browsing loot in the **Adventure Guide**, hover an item and **Shift + Right-click** it — the currently open dungeon/raid is recorded alongside it automatically
+
+**Removing items:** click the × next to an entry in the Wishlist tab, or simply loot (or get traded) a copy — it's removed and confirmed in chat automatically.
+
+A wishlist entry matches an item at *any* upgrade level/track (Champion, Hero, Myth, etc.) — you don't need to re-add it for each bonus-ID variant. Wishlist entries are saved per character in `LootMirrorCharDB`.
+
+---
+
 ## Color Picker
 
 Border/Background colors open a self-contained picker (not Blizzard's shared `ColorPickerFrame`, which can't be restyled per-addon and whose internal layout has changed across expansions):
@@ -96,6 +114,7 @@ The anchor position is saved and restored automatically across sessions.
 | File | Purpose |
 |---|---|
 | `LootFrame.lua` | Frame creation, frame pool, visual layout, row content helpers |
+| `Wishlist.lua` | Wishlist data + UI, Adventure Guide item-add integration |
 | `Options.lua` | Options window UI (sliders, dropdowns, checkboxes, scrollable layout, custom color picker) |
 | `Core.lua` | Event handling, loot detection, filtering, slash commands |
 | `LootMirror.toc` | Addon metadata |
